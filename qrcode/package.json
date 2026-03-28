@@ -12,6 +12,7 @@
       "accessLevel": "read table",
       "renderAfterReady": true,
       "description": "Generate custom QR codes based on data from a selected record.",
+      "isGristLabsMaintained": true,
       "authors": [
         {
           "name": "jperon",
