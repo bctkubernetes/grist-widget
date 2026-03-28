@@ -25,12 +25,17 @@ const state = memory('state'); // null, 'installed', 'editor'
 function _getGristPluginApiUrl() {
   const ref = document.referrer;
   if (ref) {
-    try { return new URL('/grist-plugin-api.js', ref).href; } catch(e) {}
+    try { 
+      const url = new URL('/grist-plugin-api.js', ref).href; 
+      if (!url.includes('null') && !url.includes('undefined')) return url;
+    } catch(e) {}
   }
   try {
-    return new URL('/grist-plugin-api.js', window.parent.location.href).href;
+    const url = new URL('/grist-plugin-api.js', window.parent.location.href).href;
+    if (!url.includes('null') && !url.includes('undefined')) return url;
   } catch(e) {}
-  return new URL('../grist-plugin-api.js', window.location.href).href;
+  // Fallback to the working specific host for this environment.
+  return 'https://flow.knetai.com/grist-plugin-api.js';
 }
 const GRIST_PLUGIN_API_URL = _getGristPluginApiUrl();
 

@@ -12,7 +12,10 @@
       if (!apiUrl) {
         try { apiUrl = new URL('/grist-plugin-api.js', window.parent.location.href).href; } catch(e) {}
       }
-      if (!apiUrl) { apiUrl = '../grist-plugin-api.js'; }
+      // Fallback to the working specific host for this environment.
+      if (!apiUrl || apiUrl.includes('null') || apiUrl.includes('undefined')) { 
+        apiUrl = 'https://flow.knetai.com/grist-plugin-api.js'; 
+      }
       document.write('<scr'+'ipt src="' + apiUrl + '"></scr'+'ipt>');
     })();
   </script>
