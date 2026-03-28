@@ -18,7 +18,7 @@ const currentHtml = memory('html');
 const state = memory('state'); // null, 'installed', 'editor'
 const DEFAULT_HTML = `<html>
 <head>
-  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <script src="../grist-plugin-api.js"></script>
 </head>
 <body>
   <div style="font-family: sans-serif; padding: 1em;">
@@ -237,7 +237,7 @@ function installWidget(code, html) {
   if (code.trim()) {
     if (!html.includes('grist-plugin-api.js')) {
       content.document.write(
-        `<script src="https://docs.getgrist.com/grist-plugin-api.js"></` +
+        `<script src="../grist-plugin-api.js"></` +
         `script>`
       );
     }
