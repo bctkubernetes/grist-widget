@@ -9,6 +9,7 @@
     "widgetId": "@gristlabs/widget-pedigree",
     "published": false,
     "accessLevel": "read table",
-    "renderAfterReady": true
+    "renderAfterReady": true,
+    "isGristLabsMaintained": true
   }
 }

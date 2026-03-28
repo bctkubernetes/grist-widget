@@ -10,6 +10,7 @@
     "published": false,
     "accessLevel": "read table",
     "renderAfterReady": true,
+    "isGristLabsMaintained": true,
     "description": "Timeline",
     "authors": [
       {
