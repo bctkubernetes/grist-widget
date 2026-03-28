@@ -18,23 +18,19 @@ const currentHtml = memory('html');
 const state = memory('state'); // null, 'installed', 'editor'
 // Derive the absolute URL for grist-plugin-api.js from the Grist server (parent frame),
 // not from this widget's origin (which may be GitHub Pages or another CDN).
-// window.parent.location is accessible since Grist embeds the widget in a same-origin context
-// via postMessage proxying, but the actual parent origin is available via the referrer or
-// by reading the query param that Grist injects. The safest approach: use parent.location.origin
-// when available (same origin), otherwise fall back to parsing document.referrer.
+// Priority:
+//   1. document.referrer — set by Grist when embedding this widget in an iframe
+//   2. window.parent.location — works only when widget is same-origin as Grist
+//   3. Relative fallback — works only when widget is bundled/served from Grist itself
 function _getGristPluginApiUrl() {
-  try {
-    // Works when widget is served from the same origin as Grist (bundled/local)
-    return new URL('/grist-plugin-api.js', window.parent.location.href).href;
-  } catch(e) {
-    // Cross-origin: parse from document.referrer (the Grist doc URL)
-    const ref = document.referrer;
-    if (ref) {
-      return new URL('/grist-plugin-api.js', ref).href;
-    }
-    // Final fallback: relative to this widget's own origin
-    return new URL('../grist-plugin-api.js', window.location.href).href;
+  const ref = document.referrer;
+  if (ref) {
+    try { return new URL('/grist-plugin-api.js', ref).href; } catch(e) {}
   }
+  try {
+    return new URL('/grist-plugin-api.js', window.parent.location.href).href;
+  } catch(e) {}
+  return new URL('../grist-plugin-api.js', window.location.href).href;
 }
 const GRIST_PLUGIN_API_URL = _getGristPluginApiUrl();
 
