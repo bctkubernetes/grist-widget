@@ -3,7 +3,19 @@
 <head>
   <meta charset="utf-8">
   <title>Grist Fiddle</title>
-  <script src="../grist-plugin-api.js"></script>
+  <script>
+    (function() {
+      // Load grist-plugin-api.js from the Grist server (parent frame origin),
+      // not from this widget's GitHub Pages origin where it won't exist.
+      var apiUrl;
+      try { apiUrl = new URL('/grist-plugin-api.js', document.referrer).href; } catch(e) {}
+      if (!apiUrl) {
+        try { apiUrl = new URL('/grist-plugin-api.js', window.parent.location.href).href; } catch(e) {}
+      }
+      if (!apiUrl) { apiUrl = '../grist-plugin-api.js'; }
+      document.write('<scr'+'ipt src="' + apiUrl + '"></scr'+'ipt>');
+    })();
+  </script>
   <style>
     #page_widget {
       flex: 1;

@@ -19,7 +19,7 @@ jobs:
       run: yarn install --frozen-lockfile
 
     - name: Build manifest
-      run: ./buildtools/publish.js manifest.json
+      run: ./buildtools/publish.js manifest.json https://bctkubernetes.github.io/grist-widget
       # Create new release tagged as latest, and overwrite last one.
       # https://github.com/marvinpinto/actions/tree/master/packages/automatic-releases
     - uses: "marvinpinto/action-automatic-releases@latest"
