@@ -3,22 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>Grist Fiddle</title>
-  <script>
-    (function() {
-      // Load grist-plugin-api.js from the Grist server (parent frame origin),
-      // not from this widget's GitHub Pages origin where it won't exist.
-      var apiUrl;
-      try { apiUrl = new URL('/grist-plugin-api.js', document.referrer).href; } catch(e) {}
-      if (!apiUrl) {
-        try { apiUrl = new URL('/grist-plugin-api.js', window.parent.location.href).href; } catch(e) {}
-      }
-      // Fallback to the working specific host for this environment.
-      if (!apiUrl || apiUrl.includes('null') || apiUrl.includes('undefined')) { 
-        apiUrl = 'https://flow.knetai.com/grist-plugin-api.js'; 
-      }
-      document.write('<scr'+'ipt src="' + apiUrl + '"></scr'+'ipt>');
-    })();
-  </script>
+  <script src="/grist-plugin-api.js"></script>
   <style>
     #page_widget {
       flex: 1;
