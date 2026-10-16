@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Attachment viewer</title>
+        <meta charset="utf-8" />
+        <!-- KNet: load the plugin API from the KnetDB host (as the other gallery widgets do). -->
+        <script>(function(){var u;try{u=new URL("/grist-plugin-api.js",document.referrer).href;}catch(e){}if(!u){try{u=new URL("/grist-plugin-api.js",window.parent.location.href).href;}catch(e){}}if(!u||u.includes('null')||u.includes('undefined')){u="https://flow.knetai.com/grist-plugin-api.js";}document.write("<scr"+"ipt src=\""+u+"\"></scr"+"ipt>");})();</script>
+        <script src="./index.js" defer></script>
+        <link rel="stylesheet" href="./style.css" />
+    </head>
+
+    <body>
+        <div id="wrap">
+            <iframe id="pdfViewer" hidden></iframe>
+
+            <img id="img" alt="" />
+            <div>
+                <button id="prevBtn">←</button>
+                <button id="nextBtn">→</button>
+            </div>
+            <div id="msg">
+                Select a row and map an attachment column in the widget
+                settings…
+            </div>
+        </div>
+    </body>
+</html>

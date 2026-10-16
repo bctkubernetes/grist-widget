@@ -1,0 +1,22 @@
+{
+  "name": "@knet/widget-attachment-viewer",
+  "description": "View a record's attachments (images and PDFs) inside Grist.",
+  "homePage": "https://github.com/rambip/grist-attachment-widgets",
+  "version": "0.1.0",
+  "grist": {
+    "name": "Attachment viewer",
+    "url": "https://gristlabs.github.io/grist-widget/attachment-viewer/index.html",
+    "widgetId": "@knet/widget-attachment-viewer",
+    "published": true,
+    "accessLevel": "full",
+    "renderAfterReady": false,
+    "description": "View the selected record's attachments: images and PDFs, one at a time.",
+    "authors": [
+      {
+        "name": "Antonin Peronnet (OpenSourcePolitics)",
+        "url": "https://github.com/rambip/grist-attachment-widgets"
+      }
+    ],
+    "isGristLabsMaintained": false
+  }
+}
