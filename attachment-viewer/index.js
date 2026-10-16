@@ -19,6 +19,10 @@ const nextBtn = document.getElementById("nextBtn");
 
 let currentIndex = 0;
 let attachments = [];
+// KNet: the attachment ids on screen. Grist calls onRecord for every change to the
+// selected row (a status column updating, say), and redrawing each time cleared and
+// re-downloaded the same file, so the viewer flashed on every write to the row.
+let shownKey = null;
 
 const SUPPORTED_IMAGE_TYPES = [
   "image/jpeg",
@@ -111,6 +115,7 @@ async function displayAttachment(index) {
 
   if (!attachment.data) {
     msg.textContent = "Failed to load attachment.";
+    shownKey = null; // let the next update retry
     return;
   }
 
@@ -138,6 +143,9 @@ async function displayAttachment(index) {
 async function render(record) {
   const mapped = grist.mapColumnNames(record) || {};
   const list = mapped.Attachment;
+  const key = Array.isArray(list) ? list.join(",") : "";
+  if (key === shownKey) return; // same files: nothing to redraw
+  shownKey = key;
 
   // Clean up previous attachments
   revokeObjectUrls();
