@@ -1,0 +1,1102 @@
+/* ============ Website chrome rendered over the Grist data ============ */
+
+/* ---- Header ---- */
+.ap-header {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px clamp(16px, 4vw, 40px);
+  background: color-mix(in srgb, var(--ap-surface) 94%, transparent);
+  border-bottom: 1px solid var(--ap-border);
+}
+.ap-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ap-brand__logo { height: 40px; width: auto; flex: none; display: grid; place-items: center; }
+.ap-brand__logo img, .ap-brand__logo svg { height: 40px; width: auto; }
+.ap-brand__text { display: flex; flex-direction: column; min-width: 0; }
+.ap-brand__name { margin: 0; font-family: var(--ap-font-head); font-weight: 800; font-size: var(--ap-fs-lg); letter-spacing: -.02em; line-height: 1.1; color: var(--ap-text); }
+.ap-brand__slogan { font-size: var(--ap-fs-xs); color: var(--ap-text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.ap-nav { display: flex; align-items: center; gap: 4px; }
+.ap-nav__link {
+  position: relative; padding: 8px 14px; border-radius: 999px;
+  font-size: var(--ap-fs-sm); font-weight: 600; color: var(--ap-text-soft);
+  cursor: pointer; transition: color .15s, background .15s; background: none; border: none; font-family: inherit;
+}
+.ap-nav__link:hover { color: var(--ap-text); background: var(--ap-bg-soft); }
+.ap-nav__link.is-active { color: var(--ap-link); }
+.ap-nav__link.is-active::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: 2px; height: 2px; border-radius: 2px; background: var(--ap-primary); }
+.ap-header__actions { display: flex; align-items: center; gap: 8px; }
+
+.ap-burger { display: none; }
+
+/* ---- Body shell ---- */
+.ap-main { flex: 1; width: 100%; }
+.ap-container { width: 100%; max-width: var(--ap-maxw); margin: 0 auto; padding: clamp(18px, 3vw, 34px) clamp(16px, 4vw, 40px); }
+
+/* ---- Hero / tab intro ---- */
+.ap-hero { position: relative; overflow: hidden; border-radius: var(--ap-radius-lg); padding: clamp(22px,4vw,40px); margin-bottom: var(--ap-gap); color: #fff; background: var(--ap-grad); box-shadow: var(--ap-shadow); display: flex; flex-direction: column; min-height: 170px; }
+.ap-hero.ap-va-top { justify-content: flex-start; }
+.ap-hero.ap-va-center { justify-content: center; }
+.ap-hero.ap-va-bottom { justify-content: flex-end; }
+.ap-hero--stretched { border-radius: 0; } /* edge-to-edge — rounded corners would float mid-page */
+/* Boxed (contained) heroes sit a little wider than .ap-container's own content width — the pre-
+   existing look before Boxed/Stretched became an explicit choice — via a negative-margin bleed on
+   an auto-width box (grows it symmetrically) rather than an explicit width, so it still centers
+   correctly at any viewport. Scoped to .ap-main so it never affects a smaller preview context. */
+.ap-main .ap-hero:not(.ap-hero--stretched) { margin-left: calc(-1 * var(--ap-hero-bleed)); margin-right: calc(-1 * var(--ap-hero-bleed)); }
+.ap-hero::after { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.25), transparent 55%); pointer-events: none; }
+.ap-hero__title { font-size: var(--ap-fs-2xl); margin: 0 0 .25em; position: relative; z-index: 1; }
+.ap-hero p { font-size: var(--ap-fs-lg); opacity: .92; max-width: 60ch; margin: 0; position: relative; z-index: 1; }
+.ap-hero[style*="center"] p, .ap-hero[style*="right"] p { max-width: none; }
+.ap-hero-off { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; margin-bottom: var(--ap-gap); border: 2px dashed var(--ap-border); border-radius: var(--ap-radius); color: var(--ap-text-mute); font-weight: 600; font-size: var(--ap-fs-sm); }
+.ap-hero-off svg { width: 16px; height: 16px; }
+.ap-hero__deco { position: absolute; right: -30px; bottom: -40px; width: 220px; opacity: .35; pointer-events: none; }
+
+/* ---- Tab panels ---- */
+.ap-tabpanel { animation: ap-fade-up .45s var(--ap-ease) both; }
+.ap-tabpanel[hidden] { display: none; }
+.ap-section-title { display: flex; align-items: center; gap: 10px; margin: 6px 2px 14px; font-size: var(--ap-fs-xl); }
+
+/* ---- Block grid ---- */
+.ap-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: var(--ap-gap); }
+.ap-block { grid-column: span 12; min-width: 0; animation: ap-fade-up .5s var(--ap-ease) both; }
+.ap-block[data-span="3"] { grid-column: span 3; }
+.ap-block[data-span="4"] { grid-column: span 4; }
+.ap-block[data-span="6"] { grid-column: span 6; }
+.ap-block[data-span="8"] { grid-column: span 8; }
+.ap-block[data-span="12"] { grid-column: span 12; }
+/* Narrower viewports reflow the 12-column grid. Crucially this is per-span, not a blanket rule:
+   collapsing EVERY block to span 6 (as it did) put full-width elements — a data table, a month
+   calendar, a map — into half a tablet's width, which is where they are least usable. Wide blocks
+   stay wide; only the narrow ones pair up. */
+@media (max-width: 1100px) {
+  .ap-block[data-span="3"] { grid-column: span 6; }   /* four KPI cards -> two by two */
+  .ap-block[data-span="4"] { grid-column: span 6; }
+  .ap-block[data-span="8"] { grid-column: span 12; }  /* a chart beside a sidebar -> stacked */
+}
+@media (max-width: 820px) {
+  .ap-block[data-span="6"] { grid-column: span 12; }
+}
+@media (max-width: 620px) {
+  .ap-block[data-span] { grid-column: span 12; }
+}
+
+/* Row equalization, the automatic way: a CSS grid already stretches every cell in a row to the
+   tallest block (align-items:stretch is the default), so blocks sharing a row line up on their own
+   — no manual "Equalize" button or section/flex container system needed, and it stays correct as
+   the data changes. The only missing piece was that some content cards didn't fill their stretched
+   cell; this makes them do so. Data/content cards not already at height:100% (stat, chart,
+   breakdown, map, progress, counter, calendar, qr, countdown already are). Layout-only blocks
+   (text, button, icon, spacer, divider) are deliberately left at natural height — stretching a
+   lone caption or button to match a tall chart would just add awkward empty space. An image keeps
+   its own aspect ratio inside the filled card, so a very tall neighbour leaves tidy matching-colour
+   space below it rather than a distorted photo. */
+.ap-image, .ap-accordion, .ap-testimonials, .ap-livetable, .ap-pricing, .ap-timeline { height: 100%; }
+
+/* ---- Stat card (KPI) ---- */
+.ap-stat { position: relative; overflow: hidden; padding: 18px 20px 48px; height: 100%; display: flex; flex-direction: column; gap: 8px; border-radius: var(--ap-radius); }
+.ap-stat__head, .ap-stat__delta { position: relative; z-index: 1; }
+.ap-stat__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ap-stat__icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff; background: var(--ap-grad); flex: none; }
+.ap-stat__icon svg { width: 21px; height: 21px; }
+.ap-stat__label { font-size: var(--ap-fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ap-text-mute); }
+.ap-stat__value { font-family: var(--ap-font-head); font-weight: 800; font-size: var(--ap-fs-2xl); letter-spacing: -.02em; line-height: 1; }
+.ap-stat__delta { display: inline-flex; align-items: center; gap: 4px; font-size: var(--ap-fs-sm); font-weight: 700; }
+.ap-stat__delta--up { color: #14a06f; }
+.ap-stat__delta--down { color: var(--ap-series-5); }
+.ap-stat__delta .ap-muted { font-weight: 600; font-size: var(--ap-fs-xs); }
+.ap-stat__spark { position: absolute; right: 0; bottom: 0; left: 0; height: 40px; opacity: .55; z-index: 0; pointer-events: none; }
+
+/* ---- Chart card ---- */
+.ap-chartcard { display: flex; flex-direction: column; height: 100%; padding: 16px 18px 12px; border-radius: var(--ap-radius); }
+.ap-chartcard__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.ap-chartcard__title { font-size: var(--ap-fs-md); font-weight: 700; }
+.ap-chartcard__sub { font-size: var(--ap-fs-xs); color: var(--ap-text-mute); }
+.ap-chart { width: 100%; min-height: 280px; flex: 1; }
+.ap-block[data-span="3"] .ap-chart, .ap-block[data-span="4"] .ap-chart { min-height: 220px; }
+
+/* ---- Text block ---- */
+.ap-textblock { padding: 18px 22px; border-radius: var(--ap-radius); }
+.ap-textblock h2 { font-size: var(--ap-fs-xl); }
+/* Prose gets a measure. A full-span text block on a 2560px screen ran about 213 characters per
+   line, against a comfortable 45-85 — the layout held, it just stopped being readable. Only the
+   running text is capped; tables, images and embeds inside a text block keep the full width. */
+.ap-richtext > p, .ap-richtext > ul, .ap-richtext > ol, .ap-richtext > blockquote { max-width: 72ch; }
+
+/* ---- "Needs a table" notice (a block whose table isn't in this document — see blocks.js) ---- */
+.ap-needstable { padding: 18px 20px; border-radius: var(--ap-radius); border: 1px dashed var(--ap-border); background: var(--ap-bg-soft); display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.ap-needstable__title { font-size: var(--ap-fs-md); font-weight: 700; color: var(--ap-text); }
+.ap-needstable__row { display: flex; align-items: flex-start; gap: 10px; }
+.ap-needstable__row > svg { width: 20px; height: 20px; flex: none; color: var(--ap-text-mute); margin-top: 1px; }
+.ap-needstable__lead { font-size: var(--ap-fs-sm); font-weight: 700; color: var(--ap-text-soft); }
+.ap-needstable__hint { font-size: var(--ap-fs-xs); color: var(--ap-text-mute); line-height: 1.5; margin-top: 2px; }
+
+/* ---- Empty state ---- */
+.ap-empty { text-align: center; padding: 48px 24px; color: var(--ap-text-mute); }
+.ap-empty svg { width: 120px; height: auto; margin: 0 auto 14px; opacity: .9; }
+
+/* ---- Footer ---- */
+.ap-footer { margin-top: auto; border-top: 1px solid var(--ap-border); background: var(--ap-surface); }
+.ap-footer__inner { max-width: var(--ap-maxw); margin: 0 auto; padding: 24px clamp(16px,4vw,40px); display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+.ap-footer__links { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.ap-footer__links a { color: var(--ap-text-soft); font-size: var(--ap-fs-sm); font-weight: 600; }
+.ap-footer__links a:hover { color: var(--ap-link); }
+.ap-footer__meta { font-size: var(--ap-fs-xs); color: var(--ap-text-mute); }
+.ap-footer__meta a { color: var(--ap-text-soft); font-weight: 700; }
+.ap-footer__left { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.ap-footer__right { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-left: auto; }
+.ap-footer__credit { display: inline-flex; align-items: center; gap: 8px; font-size: var(--ap-fs-sm); color: var(--ap-text-soft); white-space: nowrap; }
+.ap-footer__credit img { border-radius: 50%; }
+.ap-footer__credit b { color: var(--ap-text); }
+.ap-footer__credit:hover { color: var(--ap-link); }
+
+/* ---- Hero image slider (full-width by default, capped at 340px) ---- */
+.ap-hero-slider { position: relative; width: 100%; height: clamp(190px, 40vw, 340px); overflow: hidden; background: var(--ap-bg-soft); }
+/* Boxed slider needs an explicit wider width to match (unlike .ap-hero above, this has its own
+   width:100% rather than auto, so a negative margin alone would only shift it, not grow it). */
+.ap-main .ap-hero-slider--boxed { width: calc(100% + 2 * var(--ap-hero-bleed)); margin-left: calc(-1 * var(--ap-hero-bleed)); margin-right: calc(-1 * var(--ap-hero-bleed)); border-radius: var(--ap-radius-lg); margin-bottom: var(--ap-gap); } /* contained — needs its own rounding + spacing that edge-to-edge doesn't */
+.ap-slider__track { display: flex; height: 100%; transition: transform .55s var(--ap-ease); will-change: transform; }
+/* Caption vertical position lives on .ap-slide itself (a flex column, like .ap-hero's own
+   ap-va-* handling) so top/center/bottom actually move the caption instead of it always sitting
+   pinned to the bottom regardless of the "Vertical position" setting. */
+.ap-slide { position: relative; min-width: 100%; height: 100%; background-size: cover; background-position: center; display: flex; flex-direction: column; }
+.ap-slide.ap-cap-top { justify-content: flex-start; }
+.ap-slide.ap-cap-center { justify-content: center; }
+.ap-slide.ap-cap-bottom { justify-content: flex-end; }
+.ap-slide__cap { padding: 22px clamp(18px, 5vw, 56px); color: #fff; }
+.ap-slide.ap-cap-bottom .ap-slide__cap { background: linear-gradient(to top, rgba(8,10,20,.72), rgba(8,10,20,.15) 70%, transparent); }
+.ap-slide.ap-cap-top .ap-slide__cap { background: linear-gradient(to bottom, rgba(8,10,20,.72), rgba(8,10,20,.15) 70%, transparent); }
+.ap-slide.ap-cap-center .ap-slide__cap { margin: 0 clamp(18px, 5vw, 56px); padding: 16px 22px; background: rgba(8,10,20,.55); border-radius: var(--ap-radius); }
+.ap-slide__cap h2 { margin: 0 0 .15em; font-size: clamp(20px, 3.2vw, 34px); }
+.ap-slide__cap p { margin: 0; font-size: clamp(13px, 1.6vw, 18px); opacity: .92; }
+.ap-slider__btn { position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; display: grid; place-items: center;
+  border: none; border-radius: 50%; cursor: pointer; color: var(--ap-text); background: color-mix(in srgb, var(--ap-surface) 80%, transparent);
+  box-shadow: var(--ap-shadow); transition: background .15s, transform .15s; z-index: 2; }
+.ap-slider__btn:hover { background: var(--ap-surface); transform: translateY(-50%) scale(1.08); }
+.ap-slider__btn--prev { left: 12px; } .ap-slider__btn--prev svg { transform: rotate(90deg); }
+.ap-slider__btn--next { right: 12px; } .ap-slider__btn--next svg { transform: rotate(-90deg); }
+.ap-slider__dots { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; justify-content: center; gap: 7px; z-index: 2; }
+.ap-slider__dot { width: 8px; height: 8px; padding: 0; border: none; border-radius: 99px; cursor: pointer; background: rgba(255,255,255,.55); transition: width .2s, background .2s; }
+.ap-slider__dot.is-active { width: 22px; background: #fff; }
+
+/* ---- Breakdown block (group-wise counts) ---- */
+.ap-breakdown { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; border-radius: var(--ap-radius); height: 100%; }
+.ap-bd-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ap-bd-total { font-size: var(--ap-fs-xs); color: var(--ap-text-mute); background: var(--ap-bg-soft); padding: 3px 10px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.ap-bd-rows { display: flex; flex-direction: column; gap: 2px; }
+.ap-bd-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; transition: background .12s; }
+.ap-bd-row:hover { background: var(--ap-bg-soft); }
+.ap-bd-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.ap-bd-name { font-size: var(--ap-fs-sm); color: var(--ap-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-bd-count { margin-left: auto; font-weight: 800; font-size: var(--ap-fs-md); font-variant-numeric: tabular-nums; }
+.ap-bd-pct { font-size: var(--ap-fs-xs); color: var(--ap-text-mute); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- Map block ---- */
+.ap-mapcard { display: flex; flex-direction: column; height: 100%; min-height: 440px; padding: 16px 18px; border-radius: var(--ap-radius); }
+.ap-map { flex: 1; width: 100%; min-height: 360px; border-radius: 10px; overflow: hidden; margin-top: 8px; background: var(--ap-bg-soft); }
+/* Light grid shown through when tiles fail to load (e.g. offline dev). */
+.ap-map.leaflet-container { background-color: var(--ap-bg-soft); }
+.ap-map .leaflet-tile-pane { background-image: linear-gradient(var(--ap-border) 1px, transparent 1px), linear-gradient(90deg, var(--ap-border) 1px, transparent 1px); background-size: 32px 32px; }
+.ap-map-pin { background: transparent !important; border: none !important; }
+.ap-map-pin svg { display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
+.ap-map-count { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.ap-map-leg { display: inline-flex; align-items: center; gap: 5px; }
+.ap-map-legdot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.leaflet-container { font-family: var(--ap-font-body) !important; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--ap-surface) !important; color: var(--ap-text) !important; }
+.leaflet-popup-content { font-size: 12px !important; line-height: 1.5 !important; }
+.leaflet-popup-content strong { color: var(--ap-link); }
+
+/* ---- Spacer block (deliberately invisible — no card chrome) ---- */
+.ap-spacer { width: 100%; }
+
+/* ---- Button / Icon blocks ---- */
+.ap-buttonblock, .ap-iconblock { display: flex; align-items: center; padding: 26px 20px; border-radius: var(--ap-radius); }
+.ap-iconblock__badge { appearance: none; -webkit-appearance: none; border: none; padding: 0; margin: 0; font: inherit;
+  border-radius: 16px; display: grid; place-items: center; flex: none; }
+.ap-iconblock__badge:is(a, button) { cursor: pointer; text-decoration: none; transition: transform .15s var(--ap-ease); }
+.ap-iconblock__badge:is(a, button):hover { transform: translateY(-2px) scale(1.04); }
+.ap-iconblock__badge:is(a, button):focus-visible { outline: none; box-shadow: var(--ap-ring); }
+
+/* ---- Progress bar block ---- */
+.ap-progressblock { padding: 18px 20px; border-radius: var(--ap-radius); display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.ap-progressblock__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ap-progressblock__title { font-size: var(--ap-fs-sm); font-weight: 700; color: var(--ap-text-soft); }
+.ap-progressblock__val { font-size: var(--ap-fs-xs); font-weight: 700; color: var(--ap-text-mute); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ap-progressblock__track { height: 12px; border-radius: 999px; background: var(--ap-bg-soft); overflow: hidden; }
+.ap-progressblock__fill { height: 100%; border-radius: 999px; transition: width .4s var(--ap-ease); }
+.ap-progressblock__pct { align-self: flex-end; font-size: var(--ap-fs-xs); font-weight: 800; color: var(--ap-text-mute); }
+
+/* ---- Counter block ---- */
+.ap-counter { padding: 24px 20px; border-radius: var(--ap-radius); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; }
+.ap-counter__icon { width: 44px; height: 44px; border-radius: 13px; background: var(--ap-grad); color: #fff; display: grid; place-items: center; }
+.ap-counter__icon svg { width: 22px; height: 22px; }
+.ap-counter__value { font-family: var(--ap-font-head); font-weight: 800; font-size: var(--ap-fs-2xl); letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.ap-counter__label { font-size: var(--ap-fs-sm); color: var(--ap-text-mute); font-weight: 600; }
+
+/* ---- Accordion block ---- */
+.ap-accordion { padding: 18px 20px; border-radius: var(--ap-radius); }
+.ap-accordion__title { font-size: var(--ap-fs-xl); margin: 0 0 4px; }
+.ap-accordion__item { border-bottom: 1px solid var(--ap-border); }
+.ap-accordion__item:last-child { border-bottom: none; }
+.ap-accordion__q { cursor: pointer; list-style: none; padding: 12px 26px 12px 2px; font-weight: 700; font-size: var(--ap-fs-sm); color: var(--ap-text); position: relative; }
+.ap-accordion__q::-webkit-details-marker { display: none; }
+.ap-accordion__q::marker { content: ''; }
+.ap-accordion__q::after { content: ''; position: absolute; right: 2px; top: 50%; width: 8px; height: 8px;
+  border-right: 2px solid var(--ap-text-mute); border-bottom: 2px solid var(--ap-text-mute);
+  transform: translateY(-65%) rotate(45deg); transition: transform .2s var(--ap-ease); }
+.ap-accordion__item[open] > .ap-accordion__q::after { transform: translateY(-35%) rotate(-135deg); }
+.ap-accordion__a { padding: 0 26px 14px 2px; font-size: var(--ap-fs-sm); color: var(--ap-text-soft); line-height: 1.6; }
+
+/* ---- Image block ---- */
+.ap-image { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.ap-image__media { width: 100%; aspect-ratio: 16 / 10; background: var(--ap-bg-soft); overflow: hidden; }
+.ap-image__media img { width: 100%; height: 100%; display: block; }
+.ap-image__link { display: block; appearance: none; -webkit-appearance: none; border: none; padding: 0; margin: 0; background: none; font: inherit; cursor: pointer; }
+.ap-image__link:focus-visible { outline: none; box-shadow: var(--ap-ring); }
+.ap-image__caption { padding: 12px 16px; font-size: var(--ap-fs-sm); color: var(--ap-text-soft); text-align: center; }
+.ap-image .ap-image__empty { aspect-ratio: 16 / 10; }
+.ap-image .ap-image__empty svg { width: 80px; }
+
+/* ---- Testimonials block ---- */
+.ap-testimonials { padding: 20px; border-radius: var(--ap-radius); }
+.ap-testimonials__title { font-size: var(--ap-fs-xl); margin: 0 0 14px; }
+.ap-testimonials__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.ap-testimonial { padding: 16px; border-radius: var(--ap-radius-sm); background: var(--ap-bg-soft); display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ap-testimonial__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ap-testimonial__avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none; }
+.ap-testimonial__avatar--ph { display: grid; place-items: center; background: var(--ap-grad); color: #fff; font-weight: 800; font-size: var(--ap-fs-md); }
+.ap-testimonial__name { font-weight: 700; font-size: var(--ap-fs-sm); color: var(--ap-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-testimonial__stars { display: flex; gap: 1px; margin-top: 2px; }
+.ap-testimonial__star { width: 13px; height: 13px; color: var(--ap-border); }
+.ap-testimonial__star.is-on { color: #f5a524; fill: currentColor; }
+.ap-testimonial__quote { font-size: var(--ap-fs-sm); color: var(--ap-text-soft); line-height: 1.55; }
+
+/* ---- Live data table block ---- */
+.ap-livetable { padding: 16px 18px; border-radius: var(--ap-radius); display: flex; flex-direction: column; gap: 10px; }
+.ap-livetable__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ap-livetable__title { font-size: var(--ap-fs-md); font-weight: 700; }
+.ap-livetable__search { max-width: 220px; }
+.ap-livetable__scroll { overflow-x: auto; border: 1px solid var(--ap-border); border-radius: var(--ap-radius-sm); }
+.ap-livetable__table { width: 100%; border-collapse: collapse; font-size: var(--ap-fs-sm); }
+.ap-livetable__table th { text-align: left; padding: 9px 12px; background: var(--ap-bg-soft); color: var(--ap-text-soft); font-weight: 700; font-size: var(--ap-fs-xs); text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; border-bottom: 1px solid var(--ap-border); }
+.ap-livetable__table th.is-sortable { padding: 0; }
+/* The sort control is a real <button> now (it has to be keyboard-operable). These rules strip the
+   button chrome so the header still looks like a header, while keeping its focus ring. */
+.ap-livetable__sortbtn { display: flex; align-items: center; gap: 4px; width: 100%; padding: 9px 12px;
+  background: none; border: 0; font: inherit; color: inherit; text-transform: inherit;
+  letter-spacing: inherit; text-align: left; cursor: pointer; user-select: none; }
+.ap-livetable__sortbtn:hover { color: var(--ap-link); }
+.ap-livetable__sortbtn:focus-visible { outline: 2px solid var(--ap-primary); outline-offset: -2px; }
+.ap-livetable__sorticon { width: 11px; height: 11px; margin-left: 4px; opacity: .3; vertical-align: -1px; transition: transform .15s var(--ap-ease), opacity .15s; }
+.ap-livetable__table th.is-sorted .ap-livetable__sorticon { opacity: 1; color: var(--ap-link); }
+.ap-livetable__table th.is-sorted[data-dir="desc"] .ap-livetable__sorticon { transform: rotate(180deg); }
+/* Numeric columns right-align so digits line up down the column. */
+.ap-livetable__table .is-num { text-align: right; font-variant-numeric: tabular-nums; }
+/* The sort button fills its header and lays out left, so without this a numeric column's label
+   sat at the far left while its digits sat at the far right, and the label looked like it
+   belonged to the column before. Seen on the ANUPRESS HQ Channels table, 2026-10-08. */
+.ap-livetable__table th.is-num .ap-livetable__sortbtn { justify-content: flex-end; text-align: right; }
+.ap-livetable__table td { padding: 9px 12px; border-bottom: 1px solid var(--ap-border); color: var(--ap-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.ap-livetable__table tr:last-child td { border-bottom: none; }
+.ap-livetable__table tbody tr:hover td { background: var(--ap-bg-soft); }
+.ap-livetable__pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ap-livetable__pageno { font-size: var(--ap-fs-xs); color: var(--ap-text-mute); font-variant-numeric: tabular-nums; }
+.ap-livetable__prev svg { transform: rotate(90deg); }
+.ap-livetable__next svg { transform: rotate(-90deg); }
+
+/* ---- Calendar block ---- */
+.ap-calendar { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.ap-calendar__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ap-calendar__title { font-size: var(--ap-fs-md); font-weight: 700; color: var(--ap-text); }
+.ap-calendar__nav { display: flex; align-items: center; gap: 6px; }
+.ap-calendar__monthlabel { font-size: var(--ap-fs-sm); font-weight: 700; color: var(--ap-text-soft); min-width: 108px; text-align: center; }
+.ap-calendar__prev svg { transform: rotate(90deg); }
+.ap-calendar__next svg { transform: rotate(-90deg); }
+.ap-calendar__weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.ap-calendar__weekdays span { text-align: center; font-size: var(--ap-fs-xs); font-weight: 700; color: var(--ap-text-mute); text-transform: uppercase; letter-spacing: .04em; padding-bottom: 2px; }
+.ap-calendar__body { position: relative; }
+.ap-calendar__grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: minmax(64px, auto); gap: 4px; }
+.ap-calendar__cell { border: 1px solid var(--ap-border); border-radius: 8px; padding: 5px 5px 4px; display: flex; flex-direction: column; gap: 3px; min-width: 0; background: var(--ap-surface); transition: background .12s, border-color .12s; }
+.ap-calendar__cell.is-outside { background: var(--ap-bg-soft); opacity: .55; }
+.ap-calendar__cell.is-today { border-color: var(--ap-primary); }
+.ap-calendar__cell.is-today .ap-calendar__daynum { color: var(--ap-link); font-weight: 800; }
+.ap-calendar__cell.is-droptarget { background: color-mix(in srgb, var(--ap-primary) 10%, transparent); border-color: var(--ap-primary); }
+.ap-calendar__daynum { font-size: var(--ap-fs-xs); font-weight: 600; color: var(--ap-text-mute); }
+.ap-calendar__events { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* A <button> for keyboard reach — reset to the pill it looks like, keeping the focus ring. */
+.ap-calendar__event { width: 100%; border: 0; font-family: inherit; text-align: left; }
+.ap-calendar__event:focus-visible, .ap-calendar__more:focus-visible { outline: 2px solid var(--ap-primary); outline-offset: 1px; }
+.ap-calendar__more { background: none; border: 0; font-family: inherit; text-align: left; width: 100%; }
+.ap-calendar__event { display: block; font-size: 11px; line-height: 1.3; padding: 2px 5px; border-radius: 5px;
+  background: color-mix(in srgb, var(--ap-cal-dot, var(--ap-primary)) 16%, transparent); color: var(--ap-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-left: 3px solid var(--ap-cal-dot, var(--ap-primary)); }
+.ap-calendar__event[draggable="true"] { cursor: grab; }
+.ap-calendar__event.is-dragging { opacity: .4; }
+.ap-calendar__more { font-size: 10px; color: var(--ap-text-mute); padding: 0 4px; cursor: pointer; }
+.ap-calendar__more:hover { color: var(--ap-text); text-decoration: underline; }
+.ap-calendar__popover { position: absolute; z-index: 5; min-width: 160px; max-width: 240px; background: var(--ap-surface);
+  border: 1px solid var(--ap-border); border-radius: var(--ap-radius-sm); box-shadow: var(--ap-shadow-lg); padding: 10px 12px; }
+.ap-calendar__pop-title { font-weight: 700; font-size: var(--ap-fs-sm); color: var(--ap-text); }
+.ap-calendar__pop-detail { font-size: var(--ap-fs-xs); color: var(--ap-text-soft); margin-top: 4px; line-height: 1.5; }
+.ap-calendar__pop-label { font-weight: 700; color: var(--ap-text-mute); }
+/* Whole-day list opened from "+N more". A busy day can hold a dozen bookings, so it scrolls
+   rather than growing past the calendar. */
+.ap-calendar__popover.is-daylist { max-height: 260px; overflow-y: auto; min-width: 200px; }
+.ap-calendar__pop-item { padding: 8px 0; border-top: 1px solid var(--ap-border); }
+/* Adjacent-sibling, not :first-of-type — the title is a div too, so :first-of-type would never
+   match an item. */
+.ap-calendar__pop-title + .ap-calendar__pop-item { border-top: 0; padding-top: 6px; }
+.ap-calendar__pop-itemtitle { font-size: var(--ap-fs-sm); font-weight: 600; color: var(--ap-text); }
+@media (max-width: 560px) {
+  .ap-calendar__grid { grid-auto-rows: minmax(44px, auto); }
+  .ap-calendar__event { font-size: 0; padding: 3px; } /* collapse to a plain color bar on very small widths */
+  .ap-calendar__event::before { content: ''; display: block; width: 100%; height: 4px; border-radius: 2px; background: var(--ap-cal-dot, var(--ap-primary)); }
+}
+
+/* ---- Embed block ---- */
+.ap-embed { padding: 0; overflow: hidden; }
+.ap-embed__frame { width: 100%; border: none; display: block; background: transparent; }
+
+/* ---- QR code block ---- */
+.ap-qr { padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; height: 100%; justify-content: center; }
+.ap-qr svg { max-width: 100%; height: auto; border-radius: 6px; }
+.ap-qr__caption { font-size: var(--ap-fs-sm); color: var(--ap-text-soft); text-align: center; }
+.ap-qr__empty { font-size: var(--ap-fs-sm); color: var(--ap-text-mute); text-align: center; padding: 20px; }
+
+/* ---- Countdown block ---- */
+.ap-countdown { padding: 22px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; height: 100%; justify-content: center; }
+.ap-countdown__title { font-weight: 700; font-size: var(--ap-fs-md); color: var(--ap-text); }
+.ap-countdown__units { display: flex; gap: 14px; }
+.ap-countdown__unit { display: flex; flex-direction: column; align-items: center; min-width: 52px; }
+.ap-countdown__num { font-family: var(--ap-font-head); font-weight: 800; font-size: var(--ap-fs-2xl); line-height: 1; font-variant-numeric: tabular-nums; }
+.ap-countdown__label { font-size: var(--ap-fs-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--ap-text-mute); margin-top: 4px; }
+.ap-countdown__expired { font-size: var(--ap-fs-md); color: var(--ap-text-soft); font-weight: 600; }
+
+/* ---- Timeline block ---- */
+.ap-timeline { padding: 20px 22px; }
+.ap-timeline__title { font-size: var(--ap-fs-xl); margin: 0 0 16px; }
+.ap-timeline__list { position: relative; display: flex; flex-direction: column; gap: 22px; padding-left: 26px; }
+.ap-timeline__list::before { content: ''; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px; background: var(--ap-border); }
+.ap-timeline__item { position: relative; }
+.ap-timeline__dot { position: absolute; left: -26px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--ap-primary); border: 3px solid var(--ap-surface); box-shadow: 0 0 0 2px var(--ap-primary); }
+.ap-timeline__date { font-size: var(--ap-fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ap-link); margin-bottom: 2px; }
+.ap-timeline__itemtitle { font-weight: 700; font-size: var(--ap-fs-md); color: var(--ap-text); }
+.ap-timeline__desc { font-size: var(--ap-fs-sm); color: var(--ap-text-soft); margin-top: 3px; line-height: 1.5; }
+
+/* ---- Divider block (deliberately no card chrome — a plain rule, not a bordered box) ---- */
+.ap-dividerblock { width: 100%; padding: 14px 4px; display: flex; align-items: center; }
+.ap-dividerblock__line { width: 100%; border-top: 1px solid var(--ap-border); }
+
+/* ---- Pricing table block ---- */
+.ap-pricing { padding: 20px 22px; }
+.ap-pricing__title { font-size: var(--ap-fs-xl); margin: 0 0 16px; text-align: center; }
+.ap-pricing__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; align-items: stretch; }
+.ap-pricing__plan { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 22px 20px; border-radius: var(--ap-radius-sm); border: 1px solid var(--ap-border); background: var(--ap-surface); }
+.ap-pricing__plan.is-highlighted { border-color: var(--ap-primary); box-shadow: 0 10px 30px color-mix(in srgb, var(--ap-primary) 18%, transparent); transform: translateY(-4px); }
+.ap-pricing__badge { position: absolute; top: -11px; left: 50%; transform: translateX(-50%); background: var(--ap-grad); color: #fff; font-size: var(--ap-fs-xs); font-weight: 700; padding: 3px 12px; border-radius: 999px; }
+.ap-pricing__name { font-weight: 700; font-size: var(--ap-fs-md); color: var(--ap-text); }
+.ap-pricing__price { display: flex; align-items: baseline; gap: 4px; }
+.ap-pricing__amount { font-family: var(--ap-font-head); font-weight: 800; font-size: var(--ap-fs-2xl); color: var(--ap-text); }
+.ap-pricing__period { font-size: var(--ap-fs-sm); color: var(--ap-text-mute); }
+.ap-pricing__features { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.ap-pricing__features li { display: flex; align-items: flex-start; gap: 8px; font-size: var(--ap-fs-sm); color: var(--ap-text-soft); }
+.ap-pricing__features svg { flex: none; width: 16px; height: 16px; color: var(--ap-link); margin-top: 2px; }
+.ap-pricing__btn { justify-content: center; text-align: center; }
+
+/* ---- Mobile nav ---- */
+@media (max-width: 760px) {
+  .ap-nav { position: fixed; inset: 0 0 0 auto; width: min(78vw, 320px); flex-direction: column; align-items: stretch; gap: 4px; padding: 80px 16px 24px; background: var(--ap-surface); box-shadow: var(--ap-shadow-lg); transform: translateX(100%); transition: transform .3s var(--ap-ease); z-index: 45; }
+  .ap-nav.is-open { transform: none; }
+  .ap-nav__link { text-align: left; padding: 12px 16px; }
+  .ap-nav__link.is-active::after { display: none; }
+  .ap-burger { display: inline-flex; }
+}
+
+/* ================= Responsive scale =================
+   The 12-column grid reflow lives next to .ap-grid above. This section handles everything that
+   is sized rather than laid out: how tall a chart should be, how much room a calendar cell gets,
+   and the small-screen adjustments that keep a dashboard usable on a phone even though phones
+   are not the primary target. */
+
+/* ---- Large and very large displays ----
+   A chart that looks right in a 1180px column is squat once the column is 1720px, because its
+   height never grew with its width. These step the vertical scale up alongside --ap-maxw. */
+@media (min-width: 1500px) {
+  .ap-chart { min-height: 320px; }
+  .ap-block[data-span="3"] .ap-chart, .ap-block[data-span="4"] .ap-chart { min-height: 250px; }
+  .ap-calendar__grid { grid-auto-rows: minmax(84px, auto); }
+}
+@media (min-width: 1800px) {
+  .ap-chart { min-height: 360px; }
+  .ap-block[data-span="3"] .ap-chart, .ap-block[data-span="4"] .ap-chart { min-height: 280px; }
+  .ap-calendar__grid { grid-auto-rows: minmax(96px, auto); }
+  .ap-hero { min-height: 210px; }
+}
+@media (min-width: 2200px) {
+  .ap-chart { min-height: 400px; }
+  .ap-calendar__grid { grid-auto-rows: minmax(110px, auto); }
+  .ap-hero { min-height: 240px; }
+  /* A month calendar with a dozen bookings a day can afford to show more per cell here. */
+  .ap-calendar__events { gap: 4px; }
+}
+
+/* ---- Tablet ---- */
+@media (max-width: 1100px) {
+  .ap-livetable__search { max-width: none; flex: 1 1 160px; }
+}
+
+/* ---- Phone ----
+   Not the primary target, but a published dashboard does get opened on a phone, and "not the
+   priority" should not mean "broken". */
+@media (max-width: 620px) {
+  .ap-container { padding: 16px 14px; }
+  .ap-hero { min-height: 140px; padding: 20px 18px; }
+  .ap-stat__value { font-size: clamp(24px, 8vw, 32px); }
+  .ap-chart { min-height: 240px; }
+  .ap-livetable { padding: 14px; }
+  .ap-livetable__head { gap: 8px; }
+  .ap-timeline, .ap-pricing { padding: 16px; }
+  /* Full-bleed edges look deliberate on a phone; a 14px sliver of page behind a card does not. */
+  .ap-testimonials__grid { grid-template-columns: 1fr; }
+  .ap-footer__inner { flex-direction: column; align-items: flex-start; gap: 10px; }
+}
+
+/* ---- Typography polish ----
+   text-wrap: balance evens out the line lengths of a wrapped heading instead of leaving one
+   orphaned word on the last line. Unsupported browsers simply ignore it. */
+.ap-hero__title, .ap-slide__cap h2, .ap-chartcard__title, .ap-livetable__title { text-wrap: balance; }
+.ap-hero p, .ap-slide__cap p { text-wrap: pretty; }
+
+/* ================= Print / Save as PDF =================
+   A dashboard is often also a document that has to leave the building — an invoice, a statement of
+   account, a booking confirmation, a grant budget. Rather than ship a PDF engine, this makes the
+   PAGE print properly: every browser's print dialog already saves to PDF, so a careful print
+   stylesheet IS the export feature. A Button block with target {kind:'print'} opens that dialog,
+   and render/livetable.js expands its table to every row first, so what prints is the whole
+   ledger rather than whichever page was on screen.
+
+   The rules below remove the things nobody wants on paper and stop cards being sliced in half
+   across a page boundary. */
+@media print {
+  @page { margin: 14mm; }
+
+  /* Screen furniture: navigation, the editor, and anything interactive. */
+  .ap-header, .ap-footer, .ap-nav, .ap-burger, .ap-header__actions,
+  .ap-drawer, .ap-modal, .ap-toast, .ap-editbar, .ap-edit-tag, .ap-addblock,
+  .ap-block__tools, .ap-slider__btn, .ap-slider__dots,
+  .ap-livetable__search, .ap-livetable__pager, .ap-calendar__nav { display: none !important; }
+
+  /* Hidden tabs stay hidden — printing the visible page, not all six of them. */
+  .ap-tabpanel[hidden] { display: none !important; }
+
+  html, body, .ap-root { background: #fff !important; }
+  .ap-container { max-width: none; padding: 0; }
+  .ap-tabpanel { animation: none; }
+
+  /* Cards: flat on paper. Shadows and tinted panels waste toner and print muddy. */
+  .ap-card, .ap-hero, .ap-livetable, .ap-timeline, .ap-pricing, .ap-testimonials {
+    box-shadow: none !important; border: 1px solid #ccc !important;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .ap-hero { color: #000 !important; background: none !important; border: none !important; }
+  .ap-hero::after { display: none; }
+  .ap-hero__title, .ap-hero p { color: #000 !important; }
+
+  /* A table is the thing most likely to be printed here, so let it run to its full length
+     instead of being clipped to its on-screen scroll box. */
+  .ap-livetable__scroll { overflow: visible !important; border: none !important; }
+  .ap-livetable__table { font-size: 10.5px; width: 100%; }
+  .ap-livetable__table tr { break-inside: avoid; page-break-inside: avoid; }
+  .ap-livetable__table thead { display: table-header-group; } /* repeat headers on every page */
+
+  /* On screen a cell is one ellipsised line inside a scroll box, which is right for scanning and
+     wrong for a document — a truncated invoice number is not an invoice number. On paper cells
+     wrap and the column cap comes off, so every value prints in full. */
+  .ap-livetable__table td { white-space: normal !important; overflow: visible !important;
+    text-overflow: clip !important; max-width: none !important; vertical-align: top; }
+  .ap-livetable__table th { white-space: normal !important; }
+
+  /* Zebra striping to follow a row across a wide table, and rules light enough not to dominate
+     the numbers. Highlighted cells keep their colour — that is the point of them. */
+  .ap-livetable__table tbody tr:nth-child(even) td { background: #f7f7f9; }
+  .ap-livetable__table td, .ap-livetable__table th { border-bottom: 1px solid #ddd !important; }
+  .ap-livetable__table thead th { border-bottom: 1.5px solid #333 !important; background: none !important;
+    color: #000 !important; }
+  /* The sort control is a button on screen; on paper it is just the column name. */
+  .ap-livetable__sortbtn { padding: 4px 6px !important; color: #000 !important; }
+  .ap-livetable__sorticon { display: none !important; }
+
+  /* Numeric columns read far better right-aligned once they are on a page. */
+  .ap-livetable__table td.is-num, .ap-livetable__table th.is-num { text-align: right; }
+
+  /* The card wrapper adds nothing to a printed ledger. */
+  .ap-livetable { border: none !important; padding: 0 !important; }
+  .ap-livetable__title { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+
+  /* ---- Invoice ---- */
+  /* The chooser strip is a screen control; the document is what prints. */
+  .ap-invoice__bar { display: none !important; }
+  .ap-invoice { border: none !important; }
+  /* A fixed page inset, not zero: the bands bleed by exactly this much, so removing it pushed
+     them off the sheet. mm rather than vw, since a viewport width means nothing on paper. */
+  .ap-invoice__doc { --ap-inv-pad: 10mm; padding: var(--ap-inv-pad) !important; }
+
+  /* An invoice is a printed artefact and prints on paper, so it takes a light palette regardless
+     of what the screen was showing. Printing a dark dashboard produced near-white text on a dark
+     slab over a white page — the tokens are redefined here rather than each rule being overridden,
+     so every descendant that reads --ap-text or --ap-border comes right at once. */
+  .ap-invoice, .ap-invoice__doc {
+    --ap-surface: #ffffff;
+    --ap-bg-soft: #f5f6f8;
+    --ap-text: #11141c;
+    --ap-text-soft: #3d4552;
+    --ap-text-mute: #6b7484;
+    --ap-border: #d5d9e0;
+    background: #ffffff !important;
+    color: #11141c !important;
+  }
+  .ap-invoice__doc * { color: inherit; }
+  .ap-invoice__partylabel, .ap-invoice__metalabel, .ap-invoice__partyline--meta,
+  .ap-invoice__table th { color: #5a6270 !important; }
+  .ap-invoice__word, .ap-invoice__meta.is-total .ap-invoice__metavalue { color: var(--ap-inv-accent) !important; }
+  /* Browsers drop background colours when printing unless told otherwise, and for most of a page
+     that is the right default -- it saves ink on things that carry no meaning. Here the colour IS
+     the meaning: the band is what makes Banded banded, the tint is what makes Letterhead a
+     letterhead, and a status pill without its fill is just a word in a box. So each surface whose
+     colour is load-bearing asks for it explicitly. */
+  .ap-invoice__brandband, .ap-invoice__strip, .ap-invoice__brandfoot, .ap-invoice__status,
+  .ap-invoice__foot-item.is-payment, .ap-invoice__table thead th {
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+  /* The band is white-on-colour and has to stay that way; the blanket light-palette rule above
+     would otherwise repaint its text near-black on a saturated ground. */
+  .ap-invoice__brandband, .ap-invoice__brandband * { color: #fff !important; }
+  /* Zebra striping in a printed ledger is the same argument. */
+  .ap-livetable__table tbody tr:nth-child(even) td {
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+  .ap-invoice__table { break-inside: auto; }
+  .ap-invoice__table tr { break-inside: avoid; page-break-inside: avoid; }
+  .ap-invoice__table thead { display: table-header-group; }
+  /* Keep the totals with the last lines rather than orphaned onto a page of their own. */
+  .ap-invoice__totals, .ap-invoice__foot { break-inside: avoid; page-break-inside: avoid; }
+  /* Status pills and the accent rule are the only colour worth spending ink on. */
+  .ap-invoice__status { border: 1px solid #999; }
+
+  /* ---- A printed table is a report, not a screenshot of a card ---- */
+  .ap-livetable__report {
+    display: flex !important; align-items: flex-start; justify-content: space-between; gap: 20px;
+    padding-bottom: 10px; margin-bottom: 14px; border-bottom: 2px solid #333;
+  }
+  .ap-livetable__reportbrand { display: flex; align-items: center; gap: 10px; }
+  .ap-livetable__reportlogo img, .ap-livetable__reportlogo svg { max-height: 30px; max-width: 130px; width: auto; }
+  .ap-livetable__reportname { font-weight: 800; font-size: 13px; }
+  .ap-livetable__reportmeta { text-align: right; }
+  .ap-livetable__reporttitle { font-weight: 700; font-size: 14px; }
+  .ap-livetable__reportdate { font-size: 10px; color: #5a6270; margin-top: 3px; }
+  /* The screen header duplicates the report one, and the search box cannot be used on paper. */
+  .ap-livetable__head, .ap-livetable__print { display: none !important; }
+
+  /* Like the invoice, a ledger prints on white whatever the screen was showing. */
+  .ap-livetable {
+    --ap-surface: #ffffff; --ap-bg-soft: #f5f6f8; --ap-text: #11141c;
+    --ap-text-soft: #3d4552; --ap-text-mute: #6b7484; --ap-border: #d5d9e0;
+    background: #ffffff !important; color: #11141c !important;
+  }
+  .ap-livetable__table td { color: #11141c !important; }
+
+  /* ---- Printing the assembled layout ----
+     The overlay is the document. Everything behind it — the site, the tray, the chrome — goes,
+     and the sheet loses the shadow and padding that made it look like paper on screen, because on
+     paper the page margin is doing that job. */
+  body.ap-printing-layout > *:not(.ap-layout) { display: none !important; }
+  body.ap-printing-layout .ap-layout { position: static; background: #fff; }
+  body.ap-printing-layout .ap-layout__bar,
+  body.ap-printing-layout .ap-layout__foot,
+  body.ap-printing-layout .ap-sheet__tools,
+  body.ap-printing-layout .ap-sheet__break,
+  body.ap-printing-layout .ap-block__pick,
+  body.ap-printing-layout .ap-tray { display: none !important; }
+  body.ap-printing-layout .ap-layout__scroll { overflow: visible; padding: 0; display: block; }
+
+  /* The sheet carries no padding on paper: @page owns the margin, because only @page applies to
+     every sheet rather than once at the top and bottom of the element. printout.js injects this
+     same rule at a higher specificity alongside the @page it belongs with, so the MARGIN_MM
+     constant that paginates the sheet is also the one that indents it -- a margin disagreeing with
+     that constant would draw page breaks where the printer does not make them. See printout.js for
+     why splitting the inset across both a page margin and element padding emptied every map.
+
+     The paper palette is NOT set here -- it lives on .ap-sheet in the main stylesheet, so the
+     preview shows the same light page the printer will produce. */
+  body.ap-printing-layout .ap-sheet {
+    width: auto !important; box-shadow: none; padding: 0 !important;
+  }
+  body.ap-printing-layout .ap-layout { background: #ffffff !important; }
+  body.ap-printing-layout .ap-sheet__opts { display: none !important; }
+  /* The site header repeats on every sheet, the way a letterhead does. */
+  body.ap-printing-layout .ap-sheet__header { break-after: avoid; page-break-after: avoid; }
+
+  /* A table prints its own masthead -- logo, firm name, title, date -- because a lone table
+     leaving the building has to say what it is. On a printable layout the sheet has already said
+     it, so three collected tables stamped the same logo and name three more times down the page.
+     The title and row count still earn their place; the branding does not repeat. */
+  body.ap-printing-layout .ap-sheet .ap-livetable__reportbrand { display: none !important; }
+  body.ap-printing-layout .ap-sheet .ap-livetable__report {
+    border-bottom-width: 1px; margin-bottom: 10px; padding-bottom: 6px;
+  }
+  body.ap-printing-layout .ap-sheet .ap-livetable__reportmeta { text-align: left; }
+
+  /* The chart-type chip ("Doughnut", "Bar") tells an editor what they are looking at while they
+     build. On a finished page it is a label for the tool, not for the reader. */
+  body.ap-printing-layout .ap-sheet .ap-chip { display: none !important; }
+
+  /* Printing ONE invoice: its own Print button marks the block and hides the rest of the page,
+     so a client receives an invoice rather than a dashboard with an invoice on it. */
+  [data-print-only] .ap-block:not(.is-printtarget) { display: none !important; }
+  [data-print-only] .ap-hero, [data-print-only] .ap-section-title { display: none !important; }
+  [data-print-only] .ap-block.is-printtarget { grid-column: span 12 !important; }
+  /* Charts and maps are canvas/tiles; keep them from spilling across a page break.
+     This named .ap-map__canvas, which is not a class this widget has ever rendered, so the rule
+     matched nothing and maps broke across pages unchecked. The element is .ap-map. */
+  .ap-chart, .ap-map { break-inside: avoid; page-break-inside: avoid; }
+
+  .ap-mapcard { break-inside: avoid; page-break-inside: avoid; }
+  /* Deliberately NOT resizing the map for print. Leaflet lays its tiles out absolutely from the
+     size it last measured, so any print-only height or width strands them outside the clip --
+     which is what emptied the map in the first place. The printable layout keeps the sheet at the
+     same geometry on paper as on screen precisely so this rule has nothing to do. */
+
+  /* Zoom buttons and the layer switcher are things to click. Paper has nothing to click with,
+     and a printed "+ / −" reads as a defect rather than a control. */
+  .leaflet-control-zoom, .leaflet-control-layers { display: none !important; }
+  /* The attribution stays: it is the licence condition the tiles are served under, not chrome. */
+  .leaflet-control-attribution {
+    background: transparent !important; color: #5a6270 !important; font-size: 8px !important;
+  }
+
+  /* Blocks go full width on paper — a 3-column KPI row is unreadable at print scale. */
+  .ap-block[data-span] { grid-column: span 12; }
+  .ap-block[data-span="3"] { grid-column: span 6; } /* KPI cards still pair up nicely */
+
+  /* An embedded iframe cannot be relied on to print its contents; leave a labelled gap rather
+     than a blank rectangle of unknown height. */
+  .ap-embed, .ap-widget { display: none !important; }
+
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 10px; color: #555; }
+}
+
+/* ---- Refresh button ---- */
+/* Spins only while a fetch is in flight. Respects reduced-motion: the disabled state and the
+   toast still report what happened, so nothing is lost by holding still. */
+.ap-refresh.is-spinning svg { animation: ap-spin .8s linear infinite; }
+@keyframes ap-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ap-refresh.is-spinning svg { animation: none; opacity: .5; } }
+
+/* ---- Invoice block ----
+   A document, not a dashboard card: white ground, generous margins, a rule under the header, and
+   the totals stacked bottom-right where an eye looks for them. It has to survive being printed,
+   so nothing here depends on hover, scroll or a viewport width. */
+.ap-invoice { --ap-inv-accent: var(--ap-primary); padding: 0; overflow: hidden; }
+
+/* The chooser strip above the document: pick a row, print it. Not part of the document itself. */
+.ap-invoice__bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 16px; border-bottom: 1px solid var(--ap-border); background: var(--ap-bg-soft); }
+.ap-invoice__barlabel { font-weight: 700; font-size: var(--ap-fs-sm); margin-right: auto; }
+.ap-invoice__picker { max-width: 320px; }
+.ap-invoice__print { flex: none; }
+.ap-invoice__print svg { width: 14px; height: 14px; }
+
+/* One variable drives the document padding AND the negative margins the full-width bands use
+   to bleed into it. They were separate before, so print zeroing the padding left the bands
+   hanging outside the page. */
+.ap-invoice__doc { --ap-inv-pad: clamp(20px, 4vw, 40px); padding: var(--ap-inv-pad); background: var(--ap-surface); }
+
+.ap-invoice__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px;
+  padding-bottom: 20px; border-bottom: 2px solid var(--ap-inv-accent); }
+.ap-invoice__brand { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* A span wrapping either an uploaded <img> or the bundled brand <svg>, so both are sized the
+   same way and the three placements below only have to change the box. */
+.ap-invoice__logo { display: inline-flex; align-items: center; max-height: 46px; max-width: 190px; }
+.ap-invoice__logo img, .ap-invoice__logo svg { max-height: 46px; max-width: 190px; width: auto; height: auto; object-fit: contain; }
+.ap-invoice__fromname { font-family: var(--ap-font-head); font-weight: 800; font-size: var(--ap-fs-lg); }
+.ap-invoice__title { text-align: right; flex: none; }
+.ap-invoice__word { font-family: var(--ap-font-head); font-weight: 800; font-size: var(--ap-fs-2xl);
+  letter-spacing: -.02em; line-height: 1; color: var(--ap-inv-accent); text-transform: uppercase; }
+.ap-invoice__number { font-family: var(--ap-font-mono, ui-monospace, monospace); font-size: var(--ap-fs-sm);
+  color: var(--ap-text-soft); margin-top: 4px; }
+.ap-invoice__status { display: inline-block; margin-top: 8px; padding: 3px 10px; border-radius: 999px;
+  font-size: var(--ap-fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  background: var(--ap-bg-soft); color: var(--ap-text-soft); }
+.ap-invoice__status[data-status="paid"] { background: #e4f0e9; color: #2b6146; }
+.ap-invoice__status[data-status="overdue"] { background: #fbe9e7; color: #a92218; }
+.ap-invoice__status[data-status="sent"] { background: #eef1fb; color: #3b4a8a; }
+
+.ap-invoice__parties { display: grid; grid-template-columns: 1fr 1fr auto; gap: 28px; padding: 24px 0; }
+.ap-invoice__partylabel { font-size: var(--ap-fs-xs); font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--ap-text-mute); margin-bottom: 6px; }
+.ap-invoice__partyname { font-weight: 700; font-size: var(--ap-fs-md); margin-bottom: 2px; }
+.ap-invoice__partyline { font-size: var(--ap-fs-sm); color: var(--ap-text-soft); line-height: 1.5; }
+.ap-invoice__partyline--meta { color: var(--ap-text-mute); }
+.ap-invoice__metas { display: flex; flex-direction: column; gap: 10px; text-align: right; min-width: 150px; }
+.ap-invoice__metalabel { font-size: var(--ap-fs-xs); font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--ap-text-mute); }
+.ap-invoice__metavalue { font-size: var(--ap-fs-md); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ap-invoice__meta.is-total .ap-invoice__metavalue { font-size: var(--ap-fs-xl); font-weight: 800;
+  color: var(--ap-inv-accent); letter-spacing: -.01em; }
+
+.ap-invoice__linesbox { overflow-x: auto; }
+.ap-invoice__table { width: 100%; border-collapse: collapse; }
+.ap-invoice__table th { text-align: left; padding: 10px 12px; font-size: var(--ap-fs-xs);
+  font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ap-text-mute);
+  border-bottom: 1px solid var(--ap-border); }
+.ap-invoice__table td { padding: 11px 12px; font-size: var(--ap-fs-sm); border-bottom: 1px solid var(--ap-border); }
+.ap-invoice__table .is-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.ap-invoice__totals { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 18px 12px 0; }
+.ap-invoice__totalrow { display: flex; justify-content: space-between; gap: 40px; min-width: 240px;
+  font-size: var(--ap-fs-sm); color: var(--ap-text-soft); font-variant-numeric: tabular-nums; }
+.ap-invoice__totalrow.is-grand { margin-top: 8px; padding-top: 10px; border-top: 2px solid var(--ap-inv-accent);
+  font-size: var(--ap-fs-lg); font-weight: 800; color: var(--ap-text); }
+
+.ap-invoice__foot { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 28px;
+  padding-top: 18px; border-top: 1px solid var(--ap-border); font-size: var(--ap-fs-sm); color: var(--ap-text-soft); }
+
+@media (max-width: 720px) {
+  .ap-invoice__parties { grid-template-columns: 1fr; gap: 18px; }
+  .ap-invoice__metas { text-align: left; }
+  .ap-invoice__foot { grid-template-columns: 1fr; }
+  .ap-invoice__head { flex-direction: column; }
+  .ap-invoice__title { text-align: left; }
+}
+
+.ap-logofield { display: flex; align-items: center; gap: 12px; }
+.ap-logofield__preview { width: 76px; height: 46px; display: grid; place-items: center; flex: none;
+  border: 1px dashed var(--ap-border); border-radius: var(--ap-radius-sm, 6px); overflow: hidden; }
+.ap-logofield__preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* ---- Invoice styles ----
+   Four mastheads over one body. Each is a different answer to the same question — how does this
+   document introduce who is sending it — so only the top of the page changes and the lines,
+   totals and terms below are shared. */
+
+/* BANDED: a full-width colour band with the mark centred in it. */
+.ap-invoice__brandband { margin: calc(-1 * var(--ap-inv-pad)) calc(-1 * var(--ap-inv-pad)) 0;
+  padding: 28px 24px 22px; background: var(--ap-inv-accent); color: #fff; text-align: center; }
+.ap-invoice__logo--band { max-height: 54px; max-width: 240px; margin: 0 auto 10px; display: flex; justify-content: center; }
+.ap-invoice__logo--band img, .ap-invoice__logo--band svg { max-height: 54px; max-width: 240px; }
+.ap-invoice__bandname { font-family: var(--ap-font-head); font-weight: 800; font-size: var(--ap-fs-xl);
+  letter-spacing: .04em; text-transform: uppercase; }
+.ap-invoice__bandmeta { margin-top: 8px; font-size: var(--ap-fs-xs); letter-spacing: .22em;
+  text-transform: uppercase; opacity: .88; display: flex; justify-content: center; gap: 10px; }
+.ap-invoice__banddot { opacity: .6; }
+.ap-invoice__doc.is-banded .ap-invoice__parties { padding-top: 28px; }
+
+/* LETTERHEAD: a tinted strip, business left, mark right — printed stationery. */
+.ap-invoice__strip { margin: calc(-1 * var(--ap-inv-pad)) calc(-1 * var(--ap-inv-pad)) 0;
+  padding: 22px var(--ap-inv-pad); display: flex; align-items: center; justify-content: space-between;
+  gap: 20px; background: color-mix(in srgb, var(--ap-inv-accent) 10%, transparent);
+  border-bottom: 3px solid var(--ap-inv-accent); }
+.ap-invoice__stripleft .ap-invoice__fromname { font-size: var(--ap-fs-xl); }
+.ap-invoice__striptag { margin-top: 2px; font-size: var(--ap-fs-xs); letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ap-text-mute); }
+.ap-invoice__logo--strip { max-height: 48px; max-width: 170px; flex: none; }
+.ap-invoice__logo--strip img, .ap-invoice__logo--strip svg { max-height: 48px; max-width: 170px; }
+.ap-invoice__doc.is-letterhead .ap-invoice__parties { padding-top: 26px; }
+
+/* MINIMAL: no colour, hairline rules, everything carried by spacing and weight. */
+.ap-invoice__doc.is-minimal { --ap-inv-accent: var(--ap-text); }
+.ap-invoice__doc.is-minimal .ap-invoice__head { border-bottom-width: 1px; }
+.ap-invoice__doc.is-minimal .ap-invoice__word { font-size: var(--ap-fs-xl); letter-spacing: .18em;
+  font-weight: 600; text-transform: uppercase; }
+.ap-invoice__doc.is-minimal .ap-invoice__totalrow.is-grand { border-top-width: 1px; }
+.ap-invoice__doc.is-minimal .ap-invoice__status { background: none; border: 1px solid currentColor; }
+
+/* The status pill when the masthead has no room for it. */
+.ap-invoice__statusrow { padding-top: 18px; }
+
+/* Closing band, echoing the site footer. */
+.ap-invoice__brandfoot { display: flex; align-items: center; gap: 12px; margin: 26px calc(-1 * var(--ap-inv-pad)) calc(-1 * var(--ap-inv-pad));
+  padding: 16px var(--ap-inv-pad); border-top: 1px solid var(--ap-border);
+  background: var(--ap-bg-soft); font-size: var(--ap-fs-xs); color: var(--ap-text-mute); }
+.ap-invoice__logo--foot { max-height: 24px; max-width: 90px; flex: none; opacity: .8; }
+.ap-invoice__logo--foot img, .ap-invoice__logo--foot svg { max-height: 24px; max-width: 90px; }
+.ap-invoice__brandfoottext { flex: 1; }
+
+@media (max-width: 720px) {
+  .ap-invoice__strip { flex-direction: column; align-items: flex-start; }
+}
+
+/* Supporting text sections. The footer grid was two columns for note + terms; with payment
+   details and a signature line it needs to flow, so it wraps instead of fixing a count. */
+.ap-invoice__foot { display: flex; flex-wrap: wrap; gap: 24px 36px; }
+.ap-invoice__foot-item { flex: 1 1 220px; min-width: 0; }
+/* Payment details are the thing a payer actually hunts for, so they get a tinted panel rather
+   than being one more paragraph among several. */
+.ap-invoice__foot-item.is-payment { flex-basis: 260px; padding: 12px 14px; border-radius: var(--ap-radius-sm, 6px);
+  background: var(--ap-bg-soft); border: 1px solid var(--ap-border); }
+.ap-invoice__foot-item p { margin: 0 0 6px; }
+.ap-invoice__foot-item p:last-child { margin-bottom: 0; }
+.ap-invoice__closing { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--ap-border);
+  text-align: center; font-size: var(--ap-fs-sm); color: var(--ap-text-soft); }
+.ap-invoice__closing p { margin: 0; }
+
+/* ---- Printed-table report header ----
+   Exists only on paper. On screen the card already sits under a page that says what it is; a
+   printed sheet has no such context, so it carries its own. */
+.ap-livetable__report { display: none; }
+.ap-livetable__print { flex: none; }
+.ap-livetable__print svg { width: 14px; height: 14px; }
+.ap-livetable__head { gap: 10px; }
+
+/* ================= Printable layout =================
+   Collect blocks while browsing, arrange them on real paper, print. The sheet below is sized in
+   mm because that is what paper is specified in and browsers resolve it exactly — 210mm really is
+   793.69px — so the preview is A4 rather than a picture of A4. */
+
+/* The + on each block, in view mode only. Quiet until the block is hovered, so a page nobody is
+   collecting from does not look like a form. */
+.ap-block__pick { position: absolute; top: 8px; right: 8px; z-index: 5; opacity: 0; transition: opacity .15s; }
+.ap-block { position: relative; }
+.ap-block:hover .ap-block__pick, .ap-block__pick:focus-within { opacity: 1; }
+.ap-pickbtn.is-on { opacity: 1; background: var(--ap-primary); color: #fff; border-color: var(--ap-primary); }
+.ap-block:has(.ap-pickbtn.is-on) .ap-block__pick { opacity: 1; }
+.ap-block:has(.ap-pickbtn.is-on) { outline: 2px solid var(--ap-primary); outline-offset: 3px; border-radius: var(--ap-radius); }
+
+/* The moment of adding: the block presses, a token flies to the tray, the count bumps. */
+.ap-block.is-picked { animation: ap-pick-press .38s var(--ap-ease); }
+@keyframes ap-pick-press { 0% { transform: scale(1); } 35% { transform: scale(1.018); } 100% { transform: scale(1); } }
+.ap-flyer { position: fixed; z-index: 70; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--ap-primary); color: #fff; box-shadow: 0 12px 30px -8px rgba(0,0,0,.5); pointer-events: none; will-change: transform, opacity; }
+.ap-flyer svg { width: 18px; height: 18px; }
+.ap-tray__count.is-bump { animation: ap-bump .45s var(--ap-ease); }
+@keyframes ap-bump { 0% { transform: scale(1); } 35% { transform: scale(1.45); background: #fff; color: var(--ap-primary); } 100% { transform: scale(1); } }
+
+/* The running count. Bottom-right, out of the way, only present once something is in it. */
+.ap-tray { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: flex; align-items: center;
+  gap: 6px; padding: 6px; border-radius: 999px; background: var(--ap-surface);
+  border: 1px solid var(--ap-border); box-shadow: 0 8px 30px -8px rgba(0,0,0,.35); }
+.ap-tray:not([hidden]) { animation: ap-tray-in .35s var(--ap-ease) both; }
+@keyframes ap-tray-in { from { transform: translateY(14px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.ap-tray[hidden] { display: none; }
+.ap-tray__open { display: flex; align-items: center; gap: 9px; padding: 8px 14px 8px 12px; border: 0;
+  border-radius: 999px; background: var(--ap-primary); color: #fff; font: inherit; font-weight: 700;
+  font-size: var(--ap-fs-sm); cursor: pointer; }
+.ap-tray__open svg { width: 16px; height: 16px; }
+.ap-tray__count { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px;
+  border-radius: 999px; background: rgba(255,255,255,.25); font-size: 12px; }
+.ap-tray__cta { opacity: .85; font-weight: 600; border-left: 1px solid rgba(255,255,255,.3); padding-left: 9px; }
+@media (max-width: 620px) { .ap-tray__label, .ap-tray__cta { display: none; } }
+
+/* The layout screen. */
+.ap-layout { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column;
+  background: var(--ap-bg); }
+.ap-layout__bar, .ap-layout__foot { display: flex; align-items: center; gap: 14px; padding: 12px 18px;
+  background: var(--ap-surface); border-bottom: 1px solid var(--ap-border); flex-wrap: wrap; }
+.ap-layout__foot { border-bottom: 0; border-top: 1px solid var(--ap-border); justify-content: flex-end; }
+.ap-layout__title { display: flex; align-items: center; gap: 8px; font-weight: 800; margin-right: auto; }
+.ap-layout__title svg { width: 17px; height: 17px; }
+.ap-layout__x { margin-left: auto; }
+.ap-layout__scroll { flex: 1; overflow: auto; padding: 26px 18px 40px; display: flex; justify-content: center; }
+
+/* Page geometry controls. Office paper, then label stock, then a size you type yourself -- the
+   separator is what stops "Business card" reading as a kind of A4. */
+.ap-paper { flex-wrap: wrap; gap: 6px; align-items: center; }
+.ap-paper__sep { width: 1px; height: 20px; background: var(--ap-border); margin: 0 4px; }
+.ap-paper__custom { gap: 6px; align-items: center; }
+.ap-paper__custom[hidden] { display: none; }
+.ap-mm { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ap-muted); }
+.ap-mm__input { width: 58px; padding: 4px 6px; border: 1px solid var(--ap-border); border-radius: 7px;
+  background: var(--ap-bg); color: var(--ap-ink); font: inherit; font-size: 12px; text-align: right; }
+.ap-mm__input:focus-visible { outline: 2px solid var(--ap-primary); outline-offset: 1px; }
+.ap-mm__unit { opacity: .7; }
+.ap-repeat, .ap-repeat__opts { flex-wrap: wrap; gap: 6px; align-items: center; }
+.ap-repeat__opts[hidden] { display: none; }
+.ap-repeat__table { width: auto; min-width: 130px; text-align: left; }
+
+/* One record, repeated. The record is the unit that must not be split across a page break -- a
+   label cut in half by the paper edge is waste, not a layout choice. */
+.ap-sheet__record { grid-column: span 12; display: grid; grid-template-columns: repeat(12, 1fr);
+  gap: 8px; align-content: start; break-inside: avoid; page-break-inside: avoid; }
+.ap-sheet__record[data-across="2"] { grid-column: span 6; }
+.ap-sheet__record[data-across="3"] { grid-column: span 4; }
+.ap-sheet__record[data-across="4"] { grid-column: span 3; }
+.ap-sheet__record[data-across="6"] { grid-column: span 2; }
+.ap-sheet__record > .ap-block { grid-column: 1 / -1; width: 100%; }
+.ap-sheet__record.is-page { break-after: page; page-break-after: always; }
+.ap-sheet__record.is-page:last-child { break-after: auto; page-break-after: auto; }
+
+/* One continuous sheet at true paper width, with the printable area inset by the real margin.
+
+   The sheet is paper, so it carries paper's palette rather than the site's. Every block reads its
+   colours from these tokens, so redefining them here turns the whole sheet light in one place --
+   and, more to the point, it does so ON SCREEN as well as on paper. Scoping this to @media print
+   meant someone arranging a printout looked at dark cards, clicked Print, and got light ones; the
+   preview has to be the thing that prints, or it is not a preview. */
+.ap-sheet { background: #fff; box-shadow: 0 10px 40px -12px rgba(0,0,0,.4); padding: 12mm;
+  align-self: flex-start; color: #11141c;
+  --ap-surface: #ffffff; --ap-bg: #ffffff; --ap-bg-soft: #f5f6f8;
+  --ap-text: #11141c; --ap-text-soft: #3d4552; --ap-text-mute: #6b7484;
+  --ap-border: #d5d9e0; }
+/* Cards on the sheet lose the shadow and the tinted ground; a border is enough on paper. */
+.ap-sheet .ap-card { background: #fff; color: #11141c; box-shadow: none;
+  border: 1px solid #d5d9e0; }
+/* The same 12-column grid the page uses, so a printout is arranged in the vocabulary people
+   already know from the dashboard. The header and footer span the full width; everything else
+   takes the width it was given. */
+.ap-sheet__body { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; align-items: start; }
+.ap-sheet__header, .ap-sheet__footer, .ap-sheet__break, .ap-sheet__body > .ap-empty { grid-column: 1 / -1; }
+.ap-sheet__item { grid-column: span 12; }
+.ap-sheet__item[data-span="3"] { grid-column: span 3; }
+.ap-sheet__item[data-span="4"] { grid-column: span 4; }
+.ap-sheet__item[data-span="6"] { grid-column: span 6; }
+.ap-sheet__item[data-span="8"] { grid-column: span 8; }
+.ap-sheet__header { display: flex; align-items: center; gap: 12px; padding-bottom: 10px;
+  border-bottom: 2px solid var(--ap-primary); }
+.ap-sheet__logo img, .ap-sheet__logo svg { max-height: 34px; max-width: 150px; width: auto; }
+.ap-sheet__name { font-weight: 800; font-size: 15px; }
+.ap-sheet__slogan { font-size: 11px; color: #5a6270; }
+.ap-sheet__footer { margin-top: 10px; padding-top: 10px; border-top: 1px solid #d5d9e0;
+  font-size: 10.5px; color: #5a6270; text-align: center; }
+
+/* Each collected block, with its own handle and remove. */
+.ap-sheet__item { position: relative; break-inside: avoid; page-break-inside: avoid; }
+.ap-sheet__tools { position: absolute; top: 6px; right: 6px; z-index: 4; display: flex; gap: 4px;
+  opacity: 0; transition: opacity .15s; }
+.ap-sheet__item:hover .ap-sheet__tools, .ap-sheet__tools:focus-within { opacity: 1; }
+/* Inside the sheet a block is always full width — a quarter-width KPI on a 703px column is a
+   postage stamp, and the point of the sheet is legibility on paper. */
+/* The block fills whatever slot its item was given; the item owns the width now. */
+.ap-sheet__item .ap-block { grid-column: auto !important; width: 100%; }
+.ap-sheet__item .ap-block .ap-card { height: 100%; }
+
+/* Where the printer will really break, drawn where it will really happen. */
+.ap-sheet__break { position: relative; height: 0; margin: 8px 0; border-top: 1px dashed #b8bec9; }
+.ap-sheet__break span { position: absolute; right: 0; top: -9px; padding: 1px 7px; border-radius: 999px;
+  background: #eef0f4; color: #5a6270; font-size: 9px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; }
+
+/* A linear barcode is read by timing bar widths against the narrowest bar, so a scaled barcode is
+   an unreadable one -- and unlike a QR code it has no error correction to absorb the damage. The
+   SVG is sized in millimetres by the renderer; these rules stop anything downstream shrinking it
+   to fit, and let it overflow visibly instead, where the problem can be seen and fixed. */
+.ap-barcode { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ap-barcode svg { max-width: none; flex: none; }
+.ap-barcode__text { display: flex; gap: 0.6em; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px; letter-spacing: .08em; color: #11141c; }
+.ap-sheet .ap-barcode { background: #fff; }
+
+/* Per-block options, sitting ABOVE the block they change.
+   Width is the setting people reach for, and underneath a full-height chart it meant scrolling
+   down to click and back up to see the result. Here the control and its effect share a screen. */
+.ap-sheet__opts { margin: 0 0 8px; padding: 8px 10px; border: 1px solid var(--ap-primary);
+  border-radius: 10px; background: color-mix(in srgb, var(--ap-primary) 6%, #ffffff);
+  display: flex; flex-direction: column; gap: 8px; }
+.ap-sheet__optbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ap-sheet__optlabel { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: #5a6270; }
+.ap-sheet__optbar .ap-row { display: flex; gap: 5px; flex-wrap: wrap; }
+/* Pushed to the far end so "Keep" is always in the same place, whatever the block type adds. */
+.ap-sheet__optdone { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+/* While a block's options are open, its hover tools stand down. They are absolutely positioned at
+   the item's top-right, which is where Keep and Cancel end up — at Full width the tools were drawn
+   directly over them. Raising the panel's z-index instead would have hidden the tools BEHIND it and
+   left them unclickable, which trades a visible collision for an invisible one. */
+.ap-sheet__item.is-optioning .ap-sheet__tools { display: none; }
+.ap-sheet__optcols { display: flex; gap: 5px; flex-wrap: wrap; }
+.ap-sheet__opts .ap-chip { background: #fff; border-color: #d5d9e0; color: #11141c; }
+.ap-sheet__opts .ap-chip.is-active { background: var(--ap-primary); border-color: var(--ap-primary);
+  color: var(--ap-on-primary, #fff); }
+
+
+/* Slicer: the reader's control, so it has to LOOK like one.
+
+   One row: the column name as a quiet label, the choices as pill buttons, and at the far end the
+   count of rows the page is currently showing. The title used to sit on its own line above the
+   chips, which left a full-width card mostly empty; a label beside its options reads as one
+   control, and the row wraps on a narrow screen anyway.
+
+   Chips carry a border and a hover tint so they read as pressable rather than as tags. The active
+   state is the primary colour with a drawn tick, because "which of these is on" has to be legible
+   at a glance from across the room — that is the whole state of the page. The tick is a rotated
+   border rather than an icon so it inherits the chip's text colour in either theme for free. */
+.ap-slicer { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 18px 22px; }
+.ap-slicer__head { display: flex; align-items: center; gap: 10px; flex: none; margin-right: 6px; }
+.ap-slicer__title { display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 12px;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ap-text-soft); }
+.ap-slicer__icon { width: 14px; height: 14px; opacity: .7; }
+.ap-slicer__chips { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.ap-slicer__chip { gap: 9px; padding: 8px 15px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--ap-border); background: var(--ap-surface); color: var(--ap-text);
+  transition: background-color .12s, border-color .12s, box-shadow .12s, transform .08s; }
+.ap-slicer__chip:hover { border-color: var(--ap-primary);
+  background: color-mix(in srgb, var(--ap-primary) 9%, var(--ap-surface)); }
+.ap-slicer__chip:active { transform: translateY(1px); }
+.ap-slicer__chip:focus-visible { outline: 2px solid var(--ap-primary); outline-offset: 2px; }
+.ap-slicer__chip.is-active, .ap-slicer__chip[aria-pressed="true"] {
+  background: var(--ap-primary); border-color: var(--ap-primary); color: var(--ap-on-primary, #fff);
+  box-shadow: 0 3px 12px -5px color-mix(in srgb, var(--ap-primary) 80%, transparent); }
+.ap-slicer__chip.is-active::before { content: ''; width: 5px; height: 9px; flex: none;
+  border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); margin: -3px 1px 0 -1px; }
+.ap-slicer__chip[disabled] { opacity: 1; pointer-events: none; }   /* an inert preview is still readable */
+/* A picked value the data no longer has: still filtering, so still shown, but dashed so it reads
+   as "matches nothing" rather than as an ordinary choice. */
+.ap-slicer__chip.is-missing { border-style: dashed; }
+.ap-slicer__chip.is-missing.is-active { background: color-mix(in srgb, var(--ap-primary) 14%, var(--ap-surface)); color: var(--ap-text); box-shadow: none; }
+.ap-slicer__count { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ap-text) 9%, transparent); color: var(--ap-text-mute);
+  font-variant-numeric: tabular-nums; }
+.ap-slicer__chip.is-active .ap-slicer__count { background: color-mix(in srgb, #ffffff 24%, transparent); color: inherit; }
+/* Row count and Clear, at the end of the row. The count is the feedback that a filter applied —
+   without it the only sign was other blocks changing, somewhere below. */
+.ap-slicer__tail { display: flex; align-items: center; gap: 12px; margin-left: auto; flex: none; }
+.ap-slicer__status { font-size: 12px; color: var(--ap-text-mute); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ap-slicer__status strong { color: var(--ap-text); font-weight: 700; }
+.ap-slicer__clear { display: inline-flex; align-items: center; gap: 5px; background: none; border: 1px solid transparent;
+  padding: 4px 9px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 700; color: var(--ap-primary); cursor: pointer; }
+.ap-slicer__clear:hover { border-color: color-mix(in srgb, var(--ap-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--ap-primary) 8%, transparent); }
+.ap-slicer__clear:focus-visible { outline: 2px solid var(--ap-primary); outline-offset: 2px; }
+.ap-slicer__select { width: 100%; padding: 6px 8px; border: 1px solid var(--ap-border); border-radius: 8px;
+  background: var(--ap-bg); color: var(--ap-text); font: inherit; font-size: 13px; flex: 1 1 220px; }
+.ap-slicer__hint { flex-basis: 100%; font-size: 12px; color: var(--ap-text-mute); }
+.ap-slicer .ap-qr__empty { flex-basis: 100%; }
+.ap-slicer-targets { display: flex; flex-direction: column; gap: 0; margin: 4px 0 8px; }
+
+/* ---- grid block: a panel holding other blocks in cells ---- */
+.ap-gridblock { min-width: 0; }
+.ap-gridblock--titled { padding: 18px 20px 20px; }
+.ap-gridblock__title { font-weight: 800; font-size: var(--ap-fs-md); margin: 0 0 12px; }
+.ap-gridblock__grid { display: grid; gap: var(--ap-gap); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ap-gridblock[data-cols="1"] .ap-gridblock__grid { grid-template-columns: minmax(0, 1fr); }
+.ap-gridblock[data-cols="2"] .ap-gridblock__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ap-gridblock[data-cols="4"] .ap-gridblock__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ap-gridblock[data-gap="compact"] .ap-gridblock__grid { gap: 8px; }
+.ap-gridblock[data-gap="roomy"] .ap-gridblock__grid { gap: calc(var(--ap-gap) * 1.6); }
+.ap-gridblock__cell { min-width: 0; display: flex; flex-direction: column; }
+.ap-gridblock__cell > .ap-block { flex: 1; display: flex; flex-direction: column; animation: none; }
+.ap-gridblock__cell > .ap-block > .ap-card { flex: 1; }
+@media (max-width: 900px) {
+  .ap-gridblock[data-cols="3"] .ap-gridblock__grid, .ap-gridblock[data-cols="4"] .ap-gridblock__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .ap-gridblock .ap-gridblock__grid { grid-template-columns: minmax(0, 1fr); }
+  .ap-gridblock__cell--blank { display: none; }
+}
+
+/* ---- per-block visibility (Layout & style → Visibility) ---- */
+@media (max-width: 640px) { .ap-hide-phone { display: none !important; } }
+@media (min-width: 641px) and (max-width: 1024px) { .ap-hide-tablet { display: none !important; } }
+@media (min-width: 1025px) { .ap-hide-desktop { display: none !important; } }
+
+/* ---- Widget block: another custom widget inside this page ---- */
+.ap-widget { padding: 0; overflow: hidden; }
+.ap-widget__frame { width: 100%; border: none; display: block; background: transparent; }
+.ap-widget--empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; color: var(--ap-text-mute); border-style: dashed; }
+.ap-widget--empty svg { width: 28px; height: 28px; opacity: .7; }
+.ap-widget__hint { font-size: var(--ap-fs-sm); text-align: center; }
+
+/* Map clusters in the dashboard's colour (3.10.0): a disc of the primary colour with a soft ring of it. */
+.ap-cluster-wrap { background: transparent; }
+.ap-cluster { width: 100%; height: 100%; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--ap-primary); color: #fff; font-weight: 700; font-size: 13px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--ap-primary) 28%, transparent), 0 2px 6px rgba(0, 0, 0, .25); }

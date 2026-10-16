@@ -1,0 +1,426 @@
+// Small form-control helpers + the shared slide-in drawer used by every editor panel.
+
+import { el, uid, debounce } from '../util.js';
+import { icon, allIconNames, searchIcons } from '../assets/icons.js';
+import { pickImage, readFileAsDataURL } from './imageutil.js';
+import { getMediaLibrary, addMediaAsset } from './media.js';
+import { peekTable, hidePeek } from './table-peek.js';
+
+export function field(labelText, control, hint, infoHtml) {
+  const label = labelText
+    ? el('label', { class: 'ap-label' }, [labelText, infoHtml ? infoButton(infoHtml) : null])
+    : null;
+  return el('div', { class: 'ap-field' }, [
+    label,
+    control,
+    hint ? el('div', { class: 'ap-muted', style: { fontSize: '12px' }, text: hint }) : null,
+  ]);
+}
+
+// A small "i" button that toggles a popover with help text (e.g. available placeholders).
+// One delegated outside-click listener for the whole page (not one per call) — closes whichever
+// popover is open when a click lands outside its .ap-info-wrap, and closes any other open
+// popover when a new one opens (only one help popover open at a time).
+let _infoOutsideClickWired = false;
+function wireInfoOutsideClickOnce() {
+  if (_infoOutsideClickWired) return;
+  _infoOutsideClickWired = true;
+  document.addEventListener('click', (e) => {
+    document.querySelectorAll('.ap-info-pop.is-open').forEach((pop) => {
+      if (!pop.closest('.ap-info-wrap')?.contains(e.target)) { pop.classList.remove('is-open'); pop.style.transform = ''; }
+    });
+  });
+}
+// Nudge an open popover back inside the window. CSS alone can't do this: the popover is anchored
+// to a 15px button that may sit anywhere, so a fixed left/right rule is right for one placement and
+// wrong for the next. In the Add Element grid the (i) sits at each tile's top-right and the popover
+// hangs leftward from it, which runs off the panel edge for every left-column tile — that was the
+// visible crop. Measuring after opening handles every placement, including ones added later.
+function keepOnScreen(pop) {
+  pop.style.transform = '';
+  const M = 8;
+  // Clamp to the PANEL it lives in, not the window. Inside the Add Element drawer the window is
+  // the wrong reference — a popover pushed merely inside the viewport would slide out of the
+  // drawer and float over the page behind it. Outside a panel there is no host, so the viewport
+  // is the right bound and documentElement supplies it.
+  const host = pop.closest('.ap-drawer, .ap-modal') || document.documentElement;
+  const hr = host.getBoundingClientRect();
+  const minLeft = hr.left + M;
+  const maxRight = hr.right - M;
+  if (maxRight - minLeft < pop.getBoundingClientRect().width) return; // too narrow to help
+  const r = pop.getBoundingClientRect();
+  let dx = 0;
+  if (r.left < minLeft) dx = minLeft - r.left;
+  else if (r.right > maxRight) dx = maxRight - r.right;
+  if (dx) pop.style.transform = `translateX(${Math.round(dx)}px)`;
+}
+
+export function infoButton(html) {
+  wireInfoOutsideClickOnce();
+  const pop = el('span', { class: 'ap-info-pop', html });
+  const btn = el('button', { class: 'ap-info-btn', type: 'button', 'aria-label': 'More info', text: 'i' });
+  const wrap = el('span', { class: 'ap-info-wrap' }, [btn, pop]);
+  // infoButton() is often placed inside a <label> (see field()). Per the HTML label-activation
+  // spec, clicking ANY non-interactive descendant of a <label> — including a click landing inside
+  // this popover's own text — auto-fires a second, synthetic click on the label's first labelable
+  // descendant (our <button>), which would immediately re-toggle the popover shut. preventDefault()
+  // on clicks inside the popover suppresses that forwarding so reading/selecting its text works.
+  pop.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
+  btn.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const opening = !pop.classList.contains('is-open');
+    document.querySelectorAll('.ap-info-pop.is-open').forEach((p) => { p.classList.remove('is-open'); p.style.transform = ''; });
+    pop.classList.toggle('is-open', opening);
+    if (opening) keepOnScreen(pop);
+  });
+  return wrap;
+}
+
+export function textInput(value, onInput, opts = {}) {
+  const node = el(opts.textarea ? 'textarea' : 'input', {
+    class: opts.textarea ? 'ap-textarea' : 'ap-input', value: value ?? '',
+    placeholder: opts.placeholder || '', type: opts.type || 'text', disabled: !!opts.disabled,
+  });
+  node.addEventListener('input', () => onInput(node.value));
+  return node;
+}
+
+// One entry per line, trimmed, blanks dropped: the plain way to type an order of groups.
+export function linesInput(values, onChange, opts = {}) {
+  return textInput((values || []).join('\n'), (v) => onChange(v.split('\n').map((s) => s.trim()).filter(Boolean)), { ...opts, textarea: true });
+}
+
+// "value = New name" per line -> {value: 'New name'}. The text is kept as typed while editing
+// (so a half-typed line is not lost) and only the complete pairs are stored.
+export function pairsInput(map, onChange, opts = {}) {
+  const text = Object.entries(map || {}).map(([k, v]) => `${k} = ${v}`).join('\n');
+  return textInput(text, (v) => {
+    const out = {};
+    for (const line of v.split('\n')) {
+      const at = line.indexOf('=');
+      if (at < 1) continue;
+      const key = line.slice(0, at).trim();
+      const name = line.slice(at + 1).trim();
+      if (key && name) out[key] = name;
+    }
+    onChange(Object.keys(out).length ? out : null);
+  }, { ...opts, textarea: true });
+}
+
+export function selectInput(options, value, onChange) {
+  const opts = options.map((o) => el('option', { value: o.value, text: o.label, selected: String(o.value) === String(value) }));
+  // A saved value that isn't among the options (a template block naming a table this document
+  // doesn't have, a column since renamed in Grist) would otherwise leave nothing selected — and a
+  // <select> with no selection displays its *first* option, so the field looks set to something it
+  // isn't and closing the editor silently keeps the broken value. Surface it as its own entry so
+  // the mismatch is visible and picking a real option is an obvious, deliberate act.
+  const hasValue = value !== null && value !== undefined && value !== '';
+  if (hasValue && !options.some((o) => String(o.value) === String(value))) {
+    opts.unshift(el('option', { value: String(value), text: `${value} — not in this document`, selected: true }));
+  }
+  const sel = el('select', { class: 'ap-select' }, opts);
+  sel.addEventListener('change', () => onChange(sel.value));
+  return sel;
+}
+
+/**
+ * A table chooser that shows the table.
+ *
+ * It looks like the select it replaces; the difference is what happens before the click. Hovering
+ * or arrowing onto a table opens a snapshot of it on the left of the page (table-peek.js): its
+ * columns, their types, the first rows. A native <select> cannot do that — its open list belongs to
+ * the browser, not the page, and reports nothing until a choice is made.
+ *
+ * `options` defaults to the provider's tables. Pass your own for wording like "Use my Sales"; an
+ * entry's `peek` names the table to preview when that differs from its value, and `peek: null`
+ * marks an entry that is not a table at all. `blank` adds a leading empty choice.
+ */
+export function tablePicker(provider, value, onChange, { options, blank } = {}) {
+  const opts = options ? options.slice() : (provider.tables() || []).map((t) => ({ value: t.id, label: t.label || t.id }));
+  if (blank) opts.unshift({ value: '', label: blank, peek: null });
+  const has = (v) => v !== null && v !== undefined && v !== '';
+  // Same rule as selectInput: a saved table this document does not have is shown as such, so the
+  // field never looks set to something it is not.
+  if (has(value) && !opts.some((o) => String(o.value) === String(value))) {
+    opts.unshift({ value: String(value), label: `${value} — not in this document`, peek: null, missing: true });
+  }
+  let cur = has(value) ? String(value) : '';
+  const labelOf = (v) => opts.find((o) => String(o.value) === v)?.label ?? (v || '');
+  const peekOf = (o) => ('peek' in o ? o.peek : (has(o.value) ? String(o.value) : null));
+
+  const text = el('span', { class: 'ap-tpick__text', text: labelOf(cur) });
+  const btn = el('button', { class: 'ap-select ap-tpick__btn', type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' }, [text]);
+  const list = el('div', { class: 'ap-tpick__list', role: 'listbox', tabindex: '-1' });
+  const wrap = el('div', { class: 'ap-tpick' }, [btn, list]);
+  const items = [];
+
+  const onDoc = (e) => { if (!wrap.contains(e.target)) close(); };
+  const close = ({ focusBtn = false } = {}) => {
+    if (!wrap.classList.contains('is-open')) return;
+    wrap.classList.remove('is-open');
+    btn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('mousedown', onDoc, true);
+    hidePeek();
+    if (focusBtn) btn.focus();
+  };
+  // Focus an option and show its table. Shown explicitly rather than through the focus event: a
+  // document without system focus (a background tab, a headless run) moves activeElement but
+  // fires no focus event, and the snapshot would then lag one step behind the keyboard.
+  const land = (it) => { if (!it) return; it.focus(); it.__show(); };
+  const open = () => {
+    if (wrap.classList.contains('is-open')) return;
+    wrap.classList.add('is-open');
+    btn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', onDoc, true);
+    // Land on the current table so the keyboard has somewhere to start — and so the snapshot of
+    // the table already chosen appears at once, which is often the question being asked.
+    land(items.find((i) => i.dataset.v === cur) || items[0]);
+  };
+  const pick = (o) => {
+    cur = String(o.value);
+    text.textContent = o.label;
+    for (const i of items) i.setAttribute('aria-selected', i.dataset.v === cur ? 'true' : 'false');
+    // Close first: onChange may rebuild the editor around this control.
+    close({ focusBtn: true });
+    onChange(o.value);
+    // A <select> tells the drawer with a bubbling 'change', and this control replaced one without
+    // saying anything: the "Edit the data in …" button listens for that event, so since 3.3.0 it
+    // kept naming the table the editor opened with. Sent after onChange, so the config listeners
+    // read already holds the new table.
+    wrap.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  for (const o of opts) {
+    const it = el('button', {
+      class: 'ap-tpick__opt' + (o.missing ? ' is-missing' : ''), type: 'button', role: 'option',
+      dataset: { v: String(o.value) }, 'aria-selected': String(o.value) === cur ? 'true' : 'false', text: o.label,
+    });
+    const show = () => { const p = peekOf(o); if (p) peekTable(provider, p); else hidePeek(); };
+    it.__show = show;
+    it.addEventListener('mouseenter', show);
+    it.addEventListener('focus', show);
+    it.addEventListener('click', () => pick(o));
+    items.push(it);
+    list.append(it);
+  }
+  list.addEventListener('mouseleave', hidePeek);
+  list.addEventListener('keydown', (e) => {
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); land(items[Math.min(items.length - 1, i + 1)]); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); land(items[Math.max(0, i - 1)]); }
+    else if (e.key === 'Home') { e.preventDefault(); land(items[0]); }
+    else if (e.key === 'End') { e.preventDefault(); land(items[items.length - 1]); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close({ focusBtn: true }); }
+    else if (e.key === 'Tab') close();
+  });
+  btn.addEventListener('click', () => (wrap.classList.contains('is-open') ? close() : open()));
+  btn.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); open(); } });
+  return wrap;
+}
+
+export function checkboxRow(labelText, checked, onChange) {
+  const id = uid('cb');
+  const box = el('input', { type: 'checkbox', id, checked: !!checked });
+  box.addEventListener('change', () => onChange(box.checked));
+  return el('label', { class: 'ap-row', for: id, style: { cursor: 'pointer', marginBottom: '12px' } },
+    [box, el('span', { text: labelText, style: { fontSize: '13px', fontWeight: '600' } })]);
+}
+
+// Segmented control (e.g. block width, light/dark).
+export function segmented(options, value, onChange) {
+  const wrap = el('div', { class: 'ap-row', style: { flexWrap: 'wrap', gap: '6px' } });
+  const set = (v) => { wrap.querySelectorAll('.ap-chip').forEach((c) => c.classList.toggle('is-active', c.dataset.v === String(v))); };
+  options.forEach((o) => {
+    const chip = el('button', { class: 'ap-chip', dataset: { v: String(o.value) }, text: o.label });
+    chip.addEventListener('click', () => { onChange(o.value); set(o.value); });
+    wrap.append(chip);
+  });
+  set(value);
+  return wrap;
+}
+
+export function colorInput(value, onChange) {
+  const node = el('input', { type: 'color', class: 'ap-input-color', value: value || '#6d5efc' });
+  node.addEventListener('input', () => onChange(node.value));
+  return node;
+}
+
+export function subhead(text) { return el('div', { class: 'ap-subhead', text }); }
+export function divider() { return el('hr', { class: 'ap-divider' }); }
+
+// ---- Drawer (single instance) ----
+let current = null;
+// `wide` widens the panel for content that is a grid rather than a column of fields — the data
+// editor, where a settings-width drawer would put four cells on screen.
+export function openDrawer({ title, body, footer, wide = false }) {
+  // Replace, don't overlap. closeDrawer() keeps the old panel around for 320ms so it can slide
+  // out, which is right when nothing follows it and wrong when something does: for that third of
+  // a second there were two role="dialog" elements in the document, two nodes matching
+  // '.ap-drawer', and assistive tech had two panels to describe. It went unnoticed while drawers
+  // were opened one at a time from the toolbar; now that Settings opens into panels and they open
+  // back into Settings, replacement is the common case.
+  closeDrawer();
+  document.querySelectorAll('.ap-drawer').forEach((d) => d.remove());
+  hidePeek();
+  const bodyEl = el('div', { class: 'ap-drawer__body' }, [].concat(body));
+  const drawer = el('aside', { class: 'ap-drawer' + (wide ? ' ap-drawer--wide' : ''), role: 'dialog', 'aria-label': title }, [
+    el('div', { class: 'ap-drawer__head' }, [
+      el('div', { class: 'ap-drawer__title', text: title }),
+      el('button', { class: 'ap-btn ap-btn--icon ap-btn--ghost', 'aria-label': 'Close', onClick: () => closeDrawer() }, [icon('close')]),
+    ]),
+    bodyEl,
+    footer ? el('div', { class: 'ap-drawer__foot' }, [].concat(footer)) : null,
+  ]);
+  document.body.appendChild(drawer);
+  // setTimeout, not requestAnimationFrame: rAF does not fire while the page is not compositing —
+  // an inactive Grist browser tab, or a background preview. The drawer would then never get
+  // is-open and would sit parked off-screen at translateX(100%), visible to script and clickable
+  // but invisible to the user. render/site.js already avoids rAF for chart mounting for exactly
+  // this reason; same rule here.
+  setTimeout(() => drawer.classList.add('is-open'), 0);
+  current = drawer;
+  return { el: drawer, body: bodyEl, close: closeDrawer };
+}
+
+export function closeDrawer() {
+  hidePeek();
+  if (!current) return;
+  const d = current; current = null;
+  d.classList.remove('is-open');
+  setTimeout(() => d.remove(), 320);
+}
+
+// ---- Shared block-editor controls ----
+
+// The handful shown before anyone types. A grid of 500 opens as a wall of glyphs nobody reads, so
+// the picker starts with the ones most designs actually reach for and lets the search box do the
+// rest. These are all in the UI set, which is why they need no category.
+const STARTER_ICONS = ['coins', 'cart', 'trending', 'users', 'pulse', 'target', 'star', 'database', 'globe', 'sparkles'];
+
+/**
+ * "Choose an icon" — shared by every block config with {icon, iconData} (Stat, Icon, Counter).
+ * Reads/writes `config` in place; `site` is the whole working config, used for the shared media
+ * library of uploaded icons.
+ *
+ * Five hundred glyphs need finding, not scrolling, so the control is a search box over a grouped
+ * grid. Empty search shows the starter row plus your own uploads — the state someone opening a
+ * stat card wants — and typing switches to results across every category, matched on the name and
+ * on synonyms ("money" finds coins, "customer" finds person).
+ */
+export function iconPickerField(site, config, onChange) {
+  const wrap = el('div', { style: { display: 'grid', gap: '8px' } });
+  const results = el('div', { class: 'ap-iconpick' });
+  const count = el('div', { class: 'ap-muted', style: { fontSize: '11px' } });
+  const search = el('input', { class: 'ap-input', type: 'search',
+    placeholder: `Search ${allIconNames().length} icons — try "money", "lab", "delivery"…` });
+
+  const chipFor = (name) => {
+    const active = !config.iconData && config.icon === name;
+    const chip = el('button', { class: 'ap-iconchip' + (active ? ' is-active' : ''), type: 'button', title: name }, [icon(name)]);
+    chip.addEventListener('click', () => { config.icon = name; config.iconData = null; draw(); onChange(); });
+    return chip;
+  };
+
+  function draw() {
+    const q = search.value.trim();
+    results.replaceChildren();
+
+    if (!q) {
+      // Whatever is currently chosen leads the row, even when it is not one of the starters —
+      // otherwise picking something from the full library returned you here with no sign it had
+      // taken, because the chosen glyph simply was not among the ten on show.
+      const chosen = !config.iconData && config.icon && !STARTER_ICONS.includes(config.icon)
+        ? [config.icon] : [];
+      results.append(el('div', { class: 'ap-iconpick__grid' }, [...chosen, ...STARTER_ICONS].map(chipFor)));
+      // Uploads sit with the starters: they are the other thing already chosen for this site.
+      const mine = getMediaLibrary(site);
+      if (mine.length) {
+        results.append(el('div', { class: 'ap-iconpick__head', text: 'Your uploads' }));
+        results.append(el('div', { class: 'ap-iconpick__grid' }, mine.map(({ dataUrl }) => {
+          const chip = el('button', { class: 'ap-iconchip' + (config.iconData === dataUrl ? ' is-active' : ''), type: 'button', title: 'Custom icon' },
+            [el('img', { src: dataUrl, alt: '', style: { width: '17px', height: '17px', objectFit: 'contain' } })]);
+          chip.addEventListener('click', () => { config.iconData = dataUrl; draw(); onChange(); });
+          return chip;
+        })));
+      }
+      count.textContent = `${allIconNames().length} icons — start typing to search them all`;
+      return;
+    }
+
+    const groups = searchIcons(q);
+    const total = groups.reduce((n, g) => n + g.icons.length, 0);
+    if (!total) {
+      results.append(el('div', { class: 'ap-muted', style: { fontSize: '13px', padding: '10px 2px' },
+        text: `Nothing matches “${q}”. Try a broader word, or upload your own below.` }));
+    }
+    for (const g of groups) {
+      results.append(el('div', { class: 'ap-iconpick__head', text: g.name }));
+      results.append(el('div', { class: 'ap-iconpick__grid' }, g.icons.map(chipFor)));
+    }
+    count.textContent = total ? `${total} match${total === 1 ? '' : 'es'}` : '';
+  }
+
+  // Debounced: filtering 500 names and rebuilding the grid on every keystroke is felt.
+  search.addEventListener('input', debounce(draw, 100));
+
+  const up = el('button', { class: 'ap-btn ap-btn--soft ap-btn--sm', type: 'button' }, [icon('plus'), 'Upload your own']);
+  up.addEventListener('click', () => pickImage(async (f) => {
+    const data = await readFileAsDataURL(f, 128);
+    addMediaAsset(site, data);
+    config.iconData = data; search.value = ''; draw(); onChange();
+  }));
+
+  // Searching only works when you already know the word. Browsing is for when you do not, and a
+  // 420px drawer is the wrong place for it — this opens the whole library full-window, with names
+  // showing and the drawer still underneath, so picking returns you to the block you were editing.
+  const browse = el('button', { class: 'ap-btn ap-btn--soft ap-btn--sm', type: 'button' },
+    [icon('grid2'), `Browse all ${allIconNames().length}`]);
+  browse.addEventListener('click', async () => {
+    const { openIconBrowser } = await import('./icon-browser.js');
+    openIconBrowser({
+      current: config.iconData ? null : config.icon,
+      onPick: (name) => { config.icon = name; config.iconData = null; draw(); onChange(); },
+    });
+  });
+
+  draw();
+  wrap.append(search, count, results, el('div', { class: 'ap-row', style: { gap: '8px' } }, [browse, up]));
+  return wrap;
+}
+
+// "Where should this go?" control for clickable blocks (Button, Icon): jump to one of the
+// site's own pages, or an external URL (optionally in a new tab). Mutates `target` in place —
+// {kind:'tab'|'url'|null, tab, url, newTab}.
+export function linkTargetField(target, tabs, onChange) {
+  const wrap = el('div', { style: { display: 'grid', gap: '8px' } });
+  const kindSel = selectInput(
+    [{ value: '', label: '— No link —' }]
+      .concat((tabs || []).map((t) => ({ value: 'tab:' + t.id, label: 'Page: ' + t.title })))
+      .concat([{ value: 'url', label: 'Custom URL…' }, { value: 'print', label: 'Print / Save as PDF' }]),
+    target.kind === 'tab' ? 'tab:' + target.tab : (target.kind === 'url' ? 'url' : (target.kind === 'print' ? 'print' : '')),
+    (v) => {
+      if (v === '') { target.kind = null; target.tab = null; target.url = null; }
+      // Opens the browser's print dialog, which is also its "Save as PDF" — see the @media print
+      // rules in site.css for what actually comes out.
+      else if (v === 'print') { target.kind = 'print'; target.tab = null; target.url = null; }
+      else if (v === 'url') { target.kind = 'url'; target.tab = null; target.url = target.url || 'https://'; }
+      else { target.kind = 'tab'; target.tab = v.slice(4); target.url = null; }
+      rebuild(); onChange();
+    });
+  function rebuild() {
+    wrap.replaceChildren(kindSel);
+    if (target.kind === 'url') {
+      wrap.append(
+        textInput(target.url || '', (v) => { target.url = v; onChange(); }, { placeholder: 'https://example.com' }),
+        checkboxRow('Open in a new tab', target.newTab !== false, (v) => { target.newTab = v; onChange(); }),
+      );
+    }
+  }
+  rebuild();
+  return wrap;
+}
+
+export function primaryBtn(text, ic, onClick) {
+  return el('button', { class: 'ap-btn ap-btn--primary', onClick }, [ic ? icon(ic) : null, text]);
+}
+export function ghostBtn(text, onClick) { return el('button', { class: 'ap-btn ap-btn--ghost', text, onClick }); }

@@ -1,0 +1,46 @@
+// The KNet Dashboards consent + privacy modal. Shown before requesting full Grist access.
+// Resolves true (accept) or false (decline). Declining keeps the user in Demo mode.
+
+import { el } from '../util.js';
+import { brandLogo, icon } from '../assets/icons.js';
+
+export function showConsent({ docName } = {}) {
+  return new Promise((resolve) => {
+    const close = (val) => { overlay.style.animation = 'ap-fade-in .15s reverse both'; setTimeout(() => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(val); }, 140); };
+    const onKey = (e) => { if (e.key === 'Escape') close(false); };
+    document.addEventListener('keydown', onKey);
+
+    const bullet = (iconName, strong, rest) =>
+      el('li', {}, [icon(iconName), el('span', { html: `<strong>${strong}</strong> ${rest}` })]);
+
+    const modal = el('div', { class: 'ap-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'ap-consent-title' }, [
+      el('div', { class: 'ap-modal__banner' }, [
+        el('div', { class: 'ap-modal__brand' }, [ brandLogo(34) ]),
+        el('h2', { class: 'ap-modal__title', id: 'ap-consent-title', text: 'Enable editing & save to your own document' }),
+      ]),
+      el('div', { class: 'ap-modal__body' }, [
+        el('div', { class: 'ap-trust' }, [
+          icon('shield'),
+          el('div', {}, [ el('strong', { text: 'Your data stays yours.' }),
+            el('div', { class: 'ap-muted', html: 'KNet never receives, stores, or transmits your data. Everything runs in your browser, and your data stays inside your Grist document.' }) ]),
+        ]),
+        el('p', { class: 'ap-muted', text: 'To let you customize this widget and keep your design, KNet Dashboards needs your permission to:' }),
+        el('ul', { class: 'ap-consent-list' }, [
+          bullet('database', 'Create one table', `in ${docName ? `“${docName}”` : 'your document'} — <code>Dashboard_Config</code> — to store your design (layout, colors, logo).`),
+          bullet('eye', 'Read your tables', 'with <b>full document access</b>, so you can chart any column from any table.'),
+          bullet('save', 'Save your design', 'back into that table, so it reloads next time.'),
+          bullet('lock', 'Nothing leaves Grist', 'there is no outside server, no analytics, and no third-party calls.'),
+        ]),
+        el('p', { class: 'ap-fineprint', html: 'Grist asked you to allow <b>full document access</b> when this widget was added; creating the table above needs it. If that was declined, set <b>Access level</b> to “Full document access” in the widget panel. You can revoke it any time from the same place.' }),
+      ]),
+      el('div', { class: 'ap-modal__foot' }, [
+        el('button', { class: 'ap-btn ap-btn--ghost', text: 'Not now', onClick: () => close(false) }),
+        el('button', { class: 'ap-btn ap-btn--primary', onClick: () => close(true) }, [ icon('checkCircle'), 'Accept & continue' ]),
+      ]),
+    ]);
+
+    const overlay = el('div', { class: 'ap-overlay', onClick: (e) => { if (e.target === overlay) close(false); } }, [modal]);
+    document.body.appendChild(overlay);
+    modal.querySelector('.ap-btn--primary').focus();
+  });
+}

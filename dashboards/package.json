@@ -1,0 +1,27 @@
+{
+  "name": "@knet/widget-dashboards",
+  "description": "Website-style dashboards inside Grist: KPI cards, charts, slicers, tables, maps and printable reports.",
+  "homePage": "https://github.com/anupress/grist-advanced-charts",
+  "version": "3.10.14-knet.1",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node tests/run.mjs"
+  },
+  "grist": {
+    "name": "Dashboards",
+    "url": "https://gristlabs.github.io/grist-widget/dashboards/index.html",
+    "widgetId": "@knet/widget-dashboards",
+    "published": true,
+    "accessLevel": "full",
+    "renderAfterReady": false,
+    "description": "Build dashboards from your tables: KPI cards, 11 chart types, slicers, data tables, maps, calendars and printable reports.",
+    "authors": [
+      {
+        "name": "ANUPRESS (Advanced Charts, MIT)",
+        "url": "https://github.com/anupress/grist-advanced-charts"
+      }
+    ],
+    "isGristLabsMaintained": false
+  }
+}

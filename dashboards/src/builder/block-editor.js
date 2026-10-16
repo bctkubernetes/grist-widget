@@ -1,0 +1,1795 @@
+// Drawer editors for the three block kinds. Charts get column pickers, type recommendations
+// and a live preview that updates as you tweak. "Any column" can be used as a category or value.
+
+import { el, clone, debounce, toast, rowLabel } from '../util.js';
+import { blockCatalogEntry } from './block-catalog.js';
+import { icon, chartIcon } from '../assets/icons.js';
+import { openDrawer, closeDrawer, field, textInput, selectInput, tablePicker, checkboxRow, segmented, subhead, divider, primaryBtn, ghostBtn, iconPickerField, linkTargetField, colorInput, linesInput, pairsInput } from './ui.js';
+import { CHART_TYPES, getChartType, CARTESIAN } from '../charts/catalog.js';
+import { evaluateTypes, isMeasure, autoPick } from '../charts/recommend.js';
+import { AGGREGATIONS, autoDeltaColumn } from '../stats/aggregate.js';
+import { renderChart, isMeasureFunnel } from '../charts/echarts-adapter.js';
+import { renderBlock, mountCharts } from '../render/blocks.js';
+import { mountMaps, detectLatLon } from '../render/map.js';
+import { mountCounters } from '../render/counter.js';
+import { mountAttachmentImages } from '../render/media-mount.js';
+import { mountCountdowns } from '../render/countdown.js';
+import { SYMBOLOGIES } from '../barcode/linear.js';
+import { affectedBlocks, slicerOptions } from '../data/slicer.js';
+import { normalizeGrid, resizeCells, flattenBlocks, GRID_MIN, GRID_MAX } from '../data/grid.js';
+import { DEFAULT_MODULE_MM, MIN_MODULE_MM, MAX_MODULE_MM, DEFAULT_HEIGHT_MM } from '../render/barcode.js';
+import { currentSeriesColors } from '../theme/apply.js';
+import { openDataEditor } from './data-editor.js';
+import { guessInvoiceConfig, guessInvoiceItems, STYLES, STYLE_LABELS } from '../render/invoice.js';
+import { pickImage, readFileAsDataURL } from './imageutil.js';
+import { layoutStyleSection } from './style-section.js';
+import { clearNestedOptions, linkedTableId } from '../grist/widget-host.js';
+import { widgetHeight, WIDGET_MAX_HEIGHT, mountWidgets } from '../render/widget.js';
+
+// Every editor closes the same way: its own fields, then the shared "Layout & style" section
+// (margin, padding, spans, background, visibility and so on), then the drawer. `refresh` re-renders
+// the editor's live preview so padding, background and height changes show as they are typed; the
+// text editor has no preview and passes null. Kept out of each editor's own fields so the block's
+// settings and its placement never share a code path.
+function openEditor(title, body, footer, wb, ctx, refresh) {
+  openDrawer({ title, body: [...body, layoutStyleSection(wb, ctx, refresh)], footer });
+}
+
+const SPANS = [{ value: 3, label: 'XS' }, { value: 4, label: 'S' }, { value: 6, label: 'M' }, { value: 8, label: 'L' }, { value: 12, label: 'Full' }];
+
+// The Block width row. On the page it is the simple control it always was. Inside a Grid cell the
+// cell decides the width, so the chips are shown disabled with the reason, and Column span under
+// Layout & style is the control that applies there. Disabled rather than hidden: a person who
+// knows the row from every other editor should find it, and read why it is off.
+function widthField(wb, ctx, def) {
+  const seg = segmented(SPANS, wb.span || def, (v) => { wb.span = v; });
+  if (!ctx?.inGrid) return field('Block width', seg);
+  seg.classList.add('is-disabled');
+  seg.querySelectorAll('.ap-chip').forEach((c) => { c.disabled = true; c.tabIndex = -1; c.setAttribute('aria-disabled', 'true'); });
+  return field('Block width', seg, 'Inside a section the cell sets the width. To take more cells, use Column span under Layout & style below.');
+}
+
+const SUB_INFO = {
+  chart: 'Type your own text, or use placeholders that fill in live:<br><code>%count</code> rows · <code>%groups</code> categories · <code>%total</code> sum of the value.',
+  breakdown: 'Type your own text, or use placeholders:<br><code>%total</code> rows · <code>%groups</code> distinct values · <code>%top</code> top value · <code>%topcount</code> · <code>%empty</code>.',
+  map: 'Type your own text, or use placeholders:<br><code>%count</code> mapped · <code>%missing</code> without coordinates · <code>%total</code> rows.',
+};
+function subtitleField(wb, kind, onChange, placeholder) {
+  return field('Subtitle', textInput(wb.config.subtitle || '', (v) => { wb.config.subtitle = v; onChange(); }, { placeholder: placeholder || '' }), null, SUB_INFO[kind]);
+}
+
+export function openBlockEditor(block, ctx) {
+  if (block.type === 'stat') return openStatEditor(block, ctx);
+  if (block.type === 'text') return openTextEditor(block, ctx);
+  if (block.type === 'breakdown') return openBreakdownEditor(block, ctx);
+  if (block.type === 'map') return openMapEditor(block, ctx);
+  if (block.type === 'spacer') return openSpacerEditor(block, ctx);
+  if (block.type === 'button') return openButtonEditor(block, ctx);
+  if (block.type === 'icon') return openIconEditor(block, ctx);
+  if (block.type === 'progress') return openProgressEditor(block, ctx);
+  if (block.type === 'counter') return openCounterEditor(block, ctx);
+  if (block.type === 'accordion') return openAccordionEditor(block, ctx);
+  if (block.type === 'image') return openImageEditor(block, ctx);
+  if (block.type === 'testimonials') return openTestimonialsEditor(block, ctx);
+  if (block.type === 'livetable') return openLiveTableEditor(block, ctx);
+  if (block.type === 'invoice') return openInvoiceEditor(block, ctx);
+  if (block.type === 'embed') return openEmbedEditor(block, ctx);
+  if (block.type === 'widget') return openWidgetEditor(block, ctx);
+  if (block.type === 'qrcode') return openQRCodeEditor(block, ctx);
+  if (block.type === 'barcode') return openBarcodeEditor(block, ctx);
+  if (block.type === 'slicer') return openSlicerEditor(block, ctx);
+  if (block.type === 'grid') return openGridEditor(block, ctx);
+  if (block.type === 'countdown') return openCountdownEditor(block, ctx);
+  if (block.type === 'timeline') return openTimelineEditor(block, ctx);
+  if (block.type === 'divider') return openDividerEditor(block, ctx);
+  if (block.type === 'pricing') return openPricingEditor(block, ctx);
+  if (block.type === 'calendar') return openCalendarEditor(block, ctx);
+  return openChartEditor(block, ctx);
+}
+
+// "Edit this data" — the bridge from configuring a block to correcting what it shows.
+//
+// Sits directly under the table picker in every data-bound editor, because that is the moment you
+// are looking at the table's name and thinking about its contents. Opening it replaces this
+// drawer; closing it puts this one back, so the trip is a detour rather than a dead end.
+//
+// Only offered on a live document: in demo mode there is no table behind the numbers to write to,
+// and a Save button that cannot save is worse than no button.
+export function editDataRow(getTable, ctx, reopen) {
+  const table = getTable();
+  if (!ctx.provider?.isLive || !table) return null;
+  const label = el('span', { text: `Edit the data in ${table}` });
+  const btn = el('button', { class: 'ap-btn ap-btn--soft ap-btn--sm ap-dataedit__open', type: 'button' },
+    [icon('database'), label]);
+  btn.addEventListener('click', () => {
+    openDataEditor({
+      provider: ctx.provider,
+      table: getTable(),
+      onSaved: reopen,   // re-render the editor so its live preview shows the new numbers
+      onCancel: reopen,
+    });
+  });
+  const row = el('div', { class: 'ap-dataedit__openrow' }, [
+    btn,
+    el('div', { class: 'ap-muted', style: { fontSize: '11.5px', marginTop: '4px' },
+      text: 'Correct a value or add a row without leaving the page. Writes to your Grist table.' }),
+  ]);
+  // The button always opened the table currently picked, but its label was written once and kept
+  // naming the table the editor opened with. Any change in the drawer re-reads the picker, so the
+  // label follows without each editor having to wire it. Deferred one tick: the row is built
+  // before the drawer exists, and its own listeners run before this bubbled one, so the config
+  // holds the new table by the time it is read.
+  queueMicrotask(() => row.closest('.ap-drawer')?.addEventListener('change', () => {
+    const t = getTable();
+    if (t) label.textContent = `Edit the data in ${t}`;
+  }));
+  return row;
+}
+
+async function ensureRows(provider, table) {
+  if (provider.isLive && !provider.records(table).length) { try { await provider.prime([table]); } catch {} }
+  return provider.records(table);
+}
+
+// ---------------- Chart editor ----------------
+function openChartEditor(block, ctx) {
+  const wb = clone(block);
+  wb.config = wb.config || {};
+  const provider = ctx.provider;
+  let table = wb.config.table || provider.defaultTable();
+  wb.config.table = table;
+
+  const dynHost = el('div'); // holds the parts that depend on table/columns
+  const previewChart = el('div', { class: 'ap-preview__chart' });
+  const preview = el('div', { class: 'ap-preview' }, [previewChart]);
+
+  const refreshPreview = debounce(async () => {
+    const rows = await ensureRows(provider, wb.config.table);
+    const columns = provider.columns(wb.config.table);
+    renderChart(previewChart, wb, { rows, columns, table: wb.config.table });
+  }, 120);
+
+  function rebuild() {
+    const columns = provider.columns(wb.config.table);
+    // A funnel built from measures reads its two pickers differently from every other chart: the
+    // values ARE the stages, in the order they are listed, and there is no category at all. Saying
+    // "Categories" and "Values" there would describe a chart the user is not building.
+    const staged = isMeasureFunnel(wb.config);
+    const funnelSelected = wb.config.chartType === 'funnel';
+    dynHost.replaceChildren(
+      subhead(staged ? 'Categories  ·  leave empty to use the values below as stages'
+        : 'Categories  ·  the groups along the axis'),
+      columnPicker(columns, wb.config.dims || [], (ids) => { wb.config.dims = ids; update(); }, { pickOrder: true }),
+      subhead(staged ? 'Stages  ·  in order, widest first'
+        : 'Values  ·  the numbers to measure'),
+      columnPicker(columns, wb.config.measures || [], (ids) => { wb.config.measures = ids; update(); }, { pickOrder: true }),
+      funnelSelected ? el('div', { class: 'ap-muted', style: { fontSize: '11.5px', marginTop: '4px', lineHeight: '1.5' }, text: staged
+        ? 'Each value is a stage, in the order listed, labelled with how much of the previous stage survived it. Reorder by unpicking and picking again.'
+        : 'A funnel means stages that each contain the next — pick no category and two or more values (impressions, clicks, leads) to build one. Grouping by a category instead only reads correctly when that column is cumulative.' }) : null,
+      field('Summarize values by', selectInput(AGGREGATIONS.map((a) => ({ value: a.id, label: a.label })), wb.config.agg || 'sum', (v) => { wb.config.agg = v; update(); })),
+      subhead('Chart type'),
+      typeGrid(columns),
+      optionsBlock(),
+      colorsBlock(),
+    );
+  }
+  function update() { rebuild(); refreshPreview(); }
+
+  function typeGrid(columns) {
+    const evals = evaluateTypes(columns, { dims: wb.config.dims || [], measures: wb.config.measures || [], agg: wb.config.agg || 'sum' });
+    const map = Object.fromEntries(evals.map((e) => [e.id, e]));
+    const grid = el('div', { class: 'ap-typegrid' });
+    for (const t of CHART_TYPES) {
+      const ev = map[t.id] || {};
+      const cell = el('button', { class: 'ap-typecell' + (wb.config.chartType === t.id ? ' is-active' : ''),
+        disabled: !ev.enabled, title: t.label }, [chartIcon(t.icon), el('span', { text: t.label })]);
+      if (ev.recommended) cell.append(el('span', { class: 'ap-rec-star', text: '★', title: 'Recommended' }));
+      cell.addEventListener('click', () => { wb.config.chartType = t.id; update(); });
+      grid.append(cell);
+    }
+    return grid;
+  }
+
+  function optionsBlock() {
+    const type = wb.config.chartType;
+    const box = el('div');
+    if (CARTESIAN.has(type)) {
+      box.append(checkboxRow('Stack series', wb.config.stacked, (v) => { wb.config.stacked = v; refreshPreview(); }));
+      if (type === 'line' || type === 'area') box.append(checkboxRow('Smooth curve', wb.config.smooth !== false, (v) => { wb.config.smooth = v; refreshPreview(); }));
+    }
+    if (type !== 'scatter' && type !== 'gauge' && (wb.config.dims || []).length) {
+      const columns = provider.columns(wb.config.table);
+      box.append(groupOrderFields(wb, columns, wb.config.dims[0], () => { rebuild(); refreshPreview(); }, refreshPreview));
+    }
+    return box;
+  }
+
+  function colorsBlock() {
+    const box = el('div', {}, [divider(), subhead('Colors')]);
+    const custom = Array.isArray(wb.config.colors) && wb.config.colors.length > 0;
+    box.append(checkboxRow('Use custom colors (override theme)', custom, (on) => {
+      wb.config.colors = on ? currentSeriesColors().slice(0, 6) : null;
+      rebuild(); refreshPreview();
+    }));
+    if (custom) {
+      const row = el('div', { class: 'ap-row', style: { flexWrap: 'wrap' } });
+      wb.config.colors.forEach((c, i) => {
+        const inp = el('input', { type: 'color', class: 'ap-input-color', value: c });
+        inp.addEventListener('input', () => { wb.config.colors[i] = inp.value; refreshPreview(); });
+        row.append(inp);
+      });
+      box.append(row);
+    }
+    return box;
+  }
+
+  const body = [
+    field('Title', textInput(wb.config.title || '', (v) => { wb.config.title = v; }, { placeholder: 'Chart title' })),
+    subtitleField(wb, 'chart', () => {}, 'Auto, or e.g. %count rows across %groups groups'),
+    field('Data table', tablePicker(provider, wb.config.table,
+      (v) => { wb.config.table = v; const cols = provider.columns(v); Object.assign(wb.config, autoPick(cols)); ensureRows(provider, v).then(update); })),
+    editDataRow(() => wb.config.table, ctx, () => openChartEditor(block, ctx)),
+    dynHost,
+    widthField(wb, ctx, 6),
+    subhead('Live preview'),
+    preview,
+  ];
+  const footer = [
+    ghostBtn('Cancel', () => closeDrawer()),
+    primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); }),
+  ];
+  openEditor(block.__isNew ? 'Add chart' : 'Edit chart', body, footer, wb, ctx, refreshPreview);
+  rebuild();
+  refreshPreview();
+}
+
+// The order of a chart's groups and what they are called. Shared by the chart and breakdown
+// editors, so the two blocks read the same way. The Choice-list option only appears when the
+// column is a Choice column, because that is the only time it means anything.
+// `onChange` is for the picker, which can change the editor's shape (My own order adds a field). `onText` is for the two text
+// boxes and must NOT rebuild the editor: rebuilding replaces the box under the cursor, so a reader typing "Mid = Mid-level" lost
+// their focus, and the half-typed line with it, after every keystroke. Only a paste ever got through. (Fixed in 3.8.4.)
+function groupOrderFields(wb, columns, dim, onChange, onText = onChange) {
+  const col = (columns || []).find((c) => c.id === dim);
+  const hasChoices = Array.isArray(col?.widgetOptions?.choices) && col.widgetOptions.choices.length > 0;
+  const current = wb.config.order || (wb.config.sortByValue ? 'value' : 'auto');
+  const options = [
+    { value: 'auto', label: 'As the rows come (default)' },
+    { value: 'value', label: 'Largest first' },
+    { value: 'label', label: 'A to Z (numbers in order)' },
+    ...(hasChoices ? [{ value: 'choice', label: 'The column\'s Choice list' }] : []),
+    { value: 'custom', label: 'My own order…' },
+  ];
+  const box = el('div');
+  box.append(field('Order of groups', selectInput(options, current === 'source' ? 'auto' : current, (v) => {
+    wb.config.order = v; delete wb.config.sortByValue; onChange();
+  }), hasChoices && current !== 'choice'
+    ? 'Tip: "The column\'s Choice list" shows the groups in the order they are defined in Grist.'
+    : (!hasChoices && col?.type === 'Text' ? 'Tip: make this a Choice column in Grist and its Choice list becomes an option here.' : null)));
+  if (current === 'custom') {
+    box.append(field('Groups, one per line, in order', linesInput(wb.config.customOrder || [], (v) => { wb.config.customOrder = v; onText(); }, { placeholder: '18–24\n25–34\n35–44' }),
+      'Groups you leave out follow at the end, in the order the rows come.'));
+  }
+  box.append(field('Rename groups (optional)', pairsInput(wb.config.labels || null, (v) => { wb.config.labels = v; onText(); }, { placeholder: 'M = Male\nF = Female' }),
+    'One per line: the value as it appears, an equals sign, then the name to show. Two values renamed alike are added together.'));
+  return box;
+}
+
+// Picking appends and unpicking removes, so a list kept this way is in the order it was picked.
+// Exported for the tests.
+//
+// A chart needs that order: its first category is the axis and the second the series. The picker
+// used to hand its selection back in table order, so a column added to the table later (a Month
+// formula) could never be the axis while an earlier one (Channel) was picked: "Revenue by Month
+// and Channel" drew the channels along the axis and one line per month, and the funnel's hint to
+// reorder by unpicking and picking again did nothing (found scripting the tutorial, 3.8.4). A
+// saved list is never re-sorted, only added to at the end or taken from, so opening and editing
+// an existing chart keeps its axis.
+export function togglePick(order, id) {
+  return order.includes(id) ? order.filter((x) => x !== id) : [...order, id];
+}
+
+// A list of column pills; `onToggle` receives the selected ids after every click. They come in
+// table order unless `pickOrder` is set, when they come in the order picked (togglePick above).
+// Only the chart's categories and values ask for that. A live table draws its columns in table
+// order whatever the list says, and an invoice's address lines read best in the order the
+// address book lays them out. Exported for the tests.
+//
+// Each pill repaints itself when clicked. It used to rely on the caller rebuilding the list, and
+// the data table editor never did: a click added the column to the block (the preview further
+// down changed) while the pill kept its "+", so the reader concluded the column could not be
+// chosen. The pill is the control; it must show its own state.
+export function columnPicker(columns, selected, onToggle, { pickOrder = false } = {}) {
+  const known = (id) => columns.some((x) => x.id === id);
+  let order = [...selected];
+  const list = el('div', { class: 'ap-collist' });
+  for (const c of columns) {
+    const on = order.includes(c.id);
+    const pill = el('button', { class: 'ap-colpill' + (on ? ' is-on' : ''), type: 'button', dataset: { id: c.id }, 'aria-pressed': on ? 'true' : 'false' }, [
+      icon(on ? 'check' : 'plus'),
+      el('span', { text: c.label || c.id }),
+      el('span', { class: 'ap-coltype', text: shortType(c.type) }),
+    ]);
+    pill.addEventListener('click', () => {
+      // A saved id the table no longer has goes on the first click, as it always did.
+      order = togglePick(order.filter(known), c.id);
+      const now = order.includes(c.id);
+      pill.classList.toggle('is-on', now);
+      pill.setAttribute('aria-pressed', now ? 'true' : 'false');
+      pill.firstChild.replaceWith(icon(now ? 'check' : 'plus'));
+      onToggle(pickOrder ? [...order] : columns.filter((x) => order.includes(x.id)).map((x) => x.id));
+    });
+    list.append(pill);
+  }
+  if (!columns.length) list.append(el('div', { class: 'ap-muted', text: 'No columns in this table.' }));
+  return list;
+}
+const shortType = (t) => /int|numeric|number|currency/i.test(t) ? '#' : /date|time/i.test(t) ? '📅' : 'Abc';
+
+// ---------------- Stat editor ----------------
+function openStatEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const provider = ctx.provider;
+  wb.config.table = wb.config.table || provider.defaultTable();
+  const previewHost = el('div', { class: 'ap-preview' });
+
+  const refreshPreview = debounce(async () => {
+    await ensureRows(provider, wb.config.table);
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider, config: { dataTable: wb.config.table } }));
+  }, 100);
+
+  // Table-dependent fields, rebuilt whenever the table changes.
+  const dynHost = el('div');
+  function buildDyn() {
+    const cols = provider.columns(wb.config.table);
+    if (cols.length && !cols.find((c) => c.id === wb.config.column)) wb.config.column = cols[0].id;
+    // Repointing the stat at another table used to leave deltaBy on the OLD table's column, which
+    // killed the sparkline with no hint why. Drop it back to automatic instead.
+    if (wb.config.deltaBy && !cols.some((c) => c.id === wb.config.deltaBy)) delete wb.config.deltaBy;
+    const autoCol = autoDeltaColumn(cols);
+    dynHost.replaceChildren(
+      field('Value column',
+        selectInput(cols.map((c) => ({ value: c.id, label: c.label + (isMeasure(c) ? '' : '  (text)') })), wb.config.column, (v) => {
+          wb.config.column = v;
+          const c = cols.find((x) => x.id === v);
+          if (c && !isMeasure(c) && !['count', 'countd'].includes(wb.config.agg)) wb.config.agg = 'count';
+          buildDyn(); refreshPreview();
+        }),
+        'Sum / Average need a number column. Count and Distinct count work on any column.'),
+      field('Summarize by', selectInput(AGGREGATIONS.map((a) => ({ value: a.id, label: a.label })), wb.config.agg || 'sum', (v) => { wb.config.agg = v; refreshPreview(); })),
+      // Tri-state (see resolveDeltaBy in stats/aggregate.js): '__auto' leaves the key unset so a
+      // date column is picked for you, '' stores an explicit null meaning "no trend, on purpose",
+      // and a column id pins it. The auto label names the column it landed on, so the choice is
+      // never a mystery.
+      field('Trend & sparkline',
+        selectInput(
+          [{ value: '__auto', label: autoCol ? `Automatic — ${cols.find((c) => c.id === autoCol)?.label || autoCol}` : 'Automatic — no date column found' },
+            { value: '', label: '— none —' }].concat(cols.map((c) => ({ value: c.id, label: c.label }))),
+          wb.config.deltaBy === undefined ? '__auto' : (wb.config.deltaBy || ''),
+          (v) => {
+            if (v === '__auto') delete wb.config.deltaBy;
+            else wb.config.deltaBy = v || null;
+            refreshPreview();
+          }),
+        'The little wave and the "vs prev. period" figure under the number: the later half of the months (or days) shown, against the earlier half. Automatic uses the table\'s date column.'),
+    );
+  }
+
+  const body = [
+    field('Label', textInput(wb.config.label || '', (v) => { wb.config.label = v; refreshPreview(); }, { placeholder: 'e.g. Total samples' })),
+    field('Data table', tablePicker(provider, wb.config.table,
+      async (v) => { wb.config.table = v; await ensureRows(provider, v); buildDyn(); refreshPreview(); })),
+    editDataRow(() => wb.config.table, ctx, () => openStatEditor(block, ctx)),
+    dynHost,
+    subhead('Icon'), iconPickerField(ctx.site || {}, wb.config, refreshPreview),
+    subhead('Number format'),
+    checkboxRow('Compact (1.2K, 3.4M)', wb.config.format?.compact, (v) => { wb.config.format = { ...wb.config.format, compact: v }; refreshPreview(); }),
+    field('Currency symbol', textInput(wb.config.format?.currency || '', (v) => { wb.config.format = { ...wb.config.format, currency: v }; refreshPreview(); }, { placeholder: 'e.g. $' })),
+    field('Unit after the number', textInput(wb.config.format?.suffix || '', (v) => { wb.config.format = { ...wb.config.format, suffix: v }; refreshPreview(); }, { placeholder: 'e.g. kg' })),
+    widthField(wb, ctx, 3),
+    subhead('Live preview'), previewHost,
+  ];
+  buildDyn();
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add stat' : 'Edit stat', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Text editor ----------------
+function openTextEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const body = [
+    field('Heading', textInput(wb.config.heading || '', (v) => { wb.config.heading = v; }, { placeholder: 'Section heading' })),
+    field('Body (basic HTML allowed)', textInput(wb.config.html || '', (v) => { wb.config.html = v; }, { textarea: true, placeholder: 'Write something friendly…' })),
+    widthField(wb, ctx, 12),
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add text' : 'Edit text', body, footer, wb, ctx, null);
+}
+
+// ---------------- Breakdown editor ----------------
+function openBreakdownEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const provider = ctx.provider;
+  wb.config.table = wb.config.table || provider.defaultTable();
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(async () => {
+    await ensureRows(provider, wb.config.table);
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider, config: { dataTable: wb.config.table } }));
+    mountCharts(previewHost);
+  }, 100);
+
+  const dynHost = el('div');
+  function buildDyn() {
+    const cols = provider.columns(wb.config.table);
+    if (cols.length && !cols.find((c) => c.id === wb.config.column)) wb.config.column = cols[0].id;
+    dynHost.replaceChildren(
+      field('Group by column', selectInput(cols.map((c) => ({ value: c.id, label: c.label })), wb.config.column, (v) => { wb.config.column = v; buildDyn(); refreshPreview(); })),
+      field('Max rows shown', textInput(String(wb.config.limit || 12), (v) => { wb.config.limit = Math.max(3, Math.min(40, Number(v) || 12)); refreshPreview(); }, { type: 'number' })),
+      // A breakdown's own default is largest first; `order` is only written once the author picks.
+      groupOrderFields({ config: new Proxy(wb.config, { get: (t, k) => (k === 'order' ? (t.order || 'value') : t[k]) }) }, cols, wb.config.column, () => { buildDyn(); refreshPreview(); }, refreshPreview),
+    );
+  }
+
+  const showAs = () => (wb.config.display === 'chart' ? (wb.config.chartType || 'doughnut') : 'list');
+  const body = [
+    field('Title', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'e.g. Individual Sex' })),
+    subtitleField(wb, 'breakdown', refreshPreview, 'e.g. %groups groups · top: %top'),
+    field('Show as', segmented([
+      { value: 'list', label: 'List' }, { value: 'doughnut', label: 'Donut' }, { value: 'pie', label: 'Pie' },
+      { value: 'bar', label: 'Bar' }, { value: 'column', label: 'Column' },
+    ], showAs(), (v) => { if (v === 'list') wb.config.display = 'list'; else { wb.config.display = 'chart'; wb.config.chartType = v; } refreshPreview(); })),
+    field('Data table', tablePicker(provider, wb.config.table,
+      async (v) => { wb.config.table = v; await ensureRows(provider, v); buildDyn(); refreshPreview(); })),
+    editDataRow(() => wb.config.table, ctx, () => openBreakdownEditor(block, ctx)),
+    dynHost,
+    widthField(wb, ctx, 4),
+    subhead('Live preview'), previewHost,
+  ];
+  buildDyn();
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add breakdown' : 'Edit breakdown', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Map editor ----------------
+// The columns a map reads, fitted to its table. Exported for the tests.
+//
+// Latitude and longitude used to be filled only while empty. A new map starts on the page's
+// table, and when that table has no coordinates its first two columns stand in (Order, Date);
+// switching "Data table" to one with Latitude and Longitude then kept those two, and the map drew
+// no points (found scripting the tutorial, 3.8.4). The popup title, colour and tooltip columns
+// went stale the same way. So a change of table drops every column the new table lacks and takes
+// the coordinates detectLatLon finds there, even over an id both tables happen to have: that one
+// was chosen for the old table. Opening the editor changes nothing that is set, so a column since
+// renamed in Grist still shows as "not in this document" rather than being swapped behind the
+// author's back.
+export function fitMapColumns(config, cols, { tableChanged = false } = {}) {
+  const has = (id) => cols.some((c) => c.id === id);
+  const det = detectLatLon(cols);
+  if (tableChanged) {
+    config.latColumn = det.lat || (has(config.latColumn) ? config.latColumn : '');
+    config.lonColumn = det.lon || (has(config.lonColumn) ? config.lonColumn : '');
+    if (config.labelColumn && !has(config.labelColumn)) config.labelColumn = null;
+    if (config.colorBy && !has(config.colorBy)) config.colorBy = null;
+    if (Array.isArray(config.popupColumns)) config.popupColumns = config.popupColumns.filter(has);
+  }
+  if (!config.latColumn) config.latColumn = det.lat || (cols[0]?.id || '');
+  if (!config.lonColumn) config.lonColumn = det.lon || (cols[1]?.id || '');
+  return config;
+}
+
+function openMapEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const provider = ctx.provider;
+  wb.config.table = wb.config.table || provider.defaultTable();
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(async () => {
+    await ensureRows(provider, wb.config.table);
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider, config: { dataTable: wb.config.table } }));
+    mountMaps(previewHost);
+  }, 200);
+
+  const dynHost = el('div');
+  function buildDyn(tableChanged = false) {
+    const cols = provider.columns(wb.config.table);
+    fitMapColumns(wb.config, cols, { tableChanged });
+    const opts = cols.map((c) => ({ value: c.id, label: c.label }));
+    const optional = (label) => [{ value: '', label }].concat(opts);
+    const pc = wb.config.popupColumns || [];
+    const tip = [pc[0] || '', pc[1] || '', pc[2] || '', pc[3] || ''];
+    const setTip = (i, v) => { tip[i] = v; wb.config.popupColumns = tip.filter(Boolean); refreshPreview(); };
+    dynHost.replaceChildren(
+      field('Latitude column', selectInput(opts, wb.config.latColumn, (v) => { wb.config.latColumn = v; refreshPreview(); })),
+      field('Longitude column', selectInput(opts, wb.config.lonColumn, (v) => { wb.config.lonColumn = v; refreshPreview(); })),
+      field('Popup title (optional)', selectInput(optional('— none —'), wb.config.labelColumn || '', (v) => { wb.config.labelColumn = v || null; refreshPreview(); })),
+      field('Color points by (optional)', selectInput(optional('— single color —'), wb.config.colorBy || '', (v) => { wb.config.colorBy = v || null; refreshPreview(); })),
+      subhead('Tooltip fields (optional)'),
+      field('Tooltip field 1', selectInput(optional('— none —'), tip[0], (v) => setTip(0, v))),
+      field('Tooltip field 2', selectInput(optional('— none —'), tip[1], (v) => setTip(1, v))),
+      field('Tooltip field 3', selectInput(optional('— none —'), tip[2], (v) => setTip(2, v))),
+      field('Tooltip field 4', selectInput(optional('— none —'), tip[3], (v) => setTip(3, v))),
+    );
+  }
+
+  const body = [
+    field('Title', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'Map' })),
+    subtitleField(wb, 'map', refreshPreview, 'e.g. %count mapped · %missing without coordinates'),
+    field('Data table', tablePicker(provider, wb.config.table,
+      async (v) => { wb.config.table = v; await ensureRows(provider, v); buildDyn(true); refreshPreview(); })),
+    editDataRow(() => wb.config.table, ctx, () => openMapEditor(block, ctx)),
+    dynHost,
+    // Street and Terrain ship built in. A satellite layer does not, because no free global aerial
+    // imagery permits redistribution without an account — so instead of hotlinking someone else's
+    // servers against their terms, the block takes a tile URL from whoever holds the licence.
+    subhead('Extra map layer (optional)'),
+    el('p', { class: 'ap-muted', style: { margin: '0 0 10px', fontSize: '12px' } }, [
+      'Street and Terrain are included. To add satellite or any other basemap, paste a tile URL '
+      + 'from a provider you have an account with (ArcGIS, MapTiler, Mapbox, Stadia, or your own '
+      + 'server) along with the credit line they require.',
+    ]),
+    field('Tile URL', textInput(wb.config.tileUrl || '', (v) => { wb.config.tileUrl = v.trim(); refreshPreview(); },
+      { placeholder: 'https://…/{z}/{x}/{y}.png' })),
+    twoUp(
+      field('Layer name', textInput(wb.config.tileLabel || '', (v) => { wb.config.tileLabel = v; refreshPreview(); }, { placeholder: 'Satellite' })),
+      field('Max zoom', textInput(wb.config.tileMaxZoom || '', (v) => { wb.config.tileMaxZoom = v; refreshPreview(); }, { placeholder: '19' })),
+    ),
+    field('Attribution', textInput(wb.config.tileAttribution || '', (v) => { wb.config.tileAttribution = v; refreshPreview(); },
+      { placeholder: 'e.g. Tiles © Esri' })),
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  buildDyn();
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add map' : 'Edit map', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// Two fields side by side (e.g. Start/End, Prefix/Suffix).
+function twoUp(a, b) {
+  return el('div', { class: 'ap-row', style: { alignItems: 'flex-start' } }, [
+    el('div', { style: { flex: '1' } }, [a]),
+    el('div', { style: { flex: '1' } }, [b]),
+  ]);
+}
+function iconBtn(ic, title, on, extra = '') {
+  return el('button', { class: 'ap-btn ap-btn--icon ap-btn--sm ' + extra, title, 'aria-label': title, onClick: on }, [icon(ic)]);
+}
+function colorField(labelText, value, fallback, onChange) {
+  return el('div', {}, [el('label', { class: 'ap-label', text: labelText }), colorInput(value || fallback, onChange)]);
+}
+
+// ---------------- Spacer editor ----------------
+function openSpacerEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = () => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); };
+  const body = [
+    field('Height (pixels)', textInput(String(wb.config.height ?? 40), (v) => { wb.config.height = Math.max(4, Math.min(240, Number(v) || 40)); refreshPreview(); }, { type: 'number' }),
+      'Empty vertical space between other elements.'),
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add spacer' : 'Edit spacer', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Button editor ----------------
+function openButtonEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  wb.config.target = wb.config.target || { kind: null, tab: null, url: null, newTab: true };
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(() => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); }, 100);
+  const body = [
+    field('Label', textInput(wb.config.label || '', (v) => { wb.config.label = v; refreshPreview(); }, { placeholder: 'e.g. Get started' })),
+    field('Style', segmented([{ value: 'primary', label: 'Primary' }, { value: 'soft', label: 'Soft' }, { value: 'outline', label: 'Outline' }], wb.config.style || 'primary', (v) => { wb.config.style = v; refreshPreview(); })),
+    field('Alignment', segmented([{ value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' }], wb.config.align || 'left', (v) => { wb.config.align = v; refreshPreview(); })),
+    field('Link', linkTargetField(wb.config.target, ctx.site?.tabs, refreshPreview)),
+    widthField(wb, ctx, 3),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add button' : 'Edit button', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Icon editor ----------------
+function openIconEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  wb.config.target = wb.config.target || { kind: null, tab: null, url: null, newTab: true };
+  const site = ctx.site || {};
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(() => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); }, 100);
+  const body = [
+    subhead('Icon'), iconPickerField(site, wb.config, refreshPreview),
+    field('Size', segmented([{ value: 's', label: 'Small' }, { value: 'm', label: 'Medium' }, { value: 'l', label: 'Large' }], wb.config.size || 'm', (v) => { wb.config.size = v; refreshPreview(); })),
+    twoUp(
+      colorField('Icon color', wb.config.color, '#ffffff', (v) => { wb.config.color = v; refreshPreview(); }),
+      colorField('Background', wb.config.bg, '#6d5efc', (v) => { wb.config.bg = v; refreshPreview(); }),
+    ),
+    field('Alignment', segmented([{ value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' }], wb.config.align || 'left', (v) => { wb.config.align = v; refreshPreview(); })),
+    field('Link (optional)', linkTargetField(wb.config.target, site.tabs, refreshPreview)),
+    widthField(wb, ctx, 3),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add icon' : 'Edit icon', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Progress bar editor ----------------
+function openProgressEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const provider = ctx.provider;
+  wb.config.table = wb.config.table || provider.defaultTable();
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(async () => {
+    if (wb.config.mode === 'data') await ensureRows(provider, wb.config.table);
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider, config: { dataTable: wb.config.table } }));
+  }, 100);
+
+  const dynHost = el('div');
+  function buildDyn() {
+    if (wb.config.mode === 'data') {
+      const cols = provider.columns(wb.config.table);
+      if (cols.length && !cols.find((c) => c.id === wb.config.valueColumn)) wb.config.valueColumn = cols[0].id;
+      dynHost.replaceChildren(
+        field('Data table', tablePicker(provider, wb.config.table,
+          async (v) => { wb.config.table = v; await ensureRows(provider, v); buildDyn(); refreshPreview(); })),
+        editDataRow(() => wb.config.table, ctx, () => openProgressEditor(block, ctx)),
+        field('Value column', selectInput(cols.map((c) => ({ value: c.id, label: c.label })), wb.config.valueColumn, (v) => { wb.config.valueColumn = v; refreshPreview(); })),
+        field('Summarize by', selectInput(AGGREGATIONS.map((a) => ({ value: a.id, label: a.label })), wb.config.agg || 'sum', (v) => { wb.config.agg = v; refreshPreview(); })),
+      );
+    } else {
+      dynHost.replaceChildren(
+        field('Current value', textInput(String(wb.config.value ?? 0), (v) => { wb.config.value = Number(v) || 0; refreshPreview(); }, { type: 'number' })),
+      );
+    }
+  }
+
+  const body = [
+    field('Title', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'e.g. Fundraising goal' })),
+    field('Value comes from', segmented([{ value: 'manual', label: 'Type a number' }, { value: 'data', label: 'From my data' }], wb.config.mode || 'manual', (v) => { wb.config.mode = v; buildDyn(); refreshPreview(); })),
+    dynHost,
+    field('Target (goal)', textInput(String(wb.config.target ?? 100), (v) => { wb.config.target = Number(v) || 0; refreshPreview(); }, { type: 'number' })),
+    // Two fields, not one: a currency symbol has to lead the number and a unit has to follow it.
+    field('Prefix (optional)', textInput(wb.config.prefix || '', (v) => { wb.config.prefix = v; refreshPreview(); }, { placeholder: 'e.g. $, £ — goes before the number' })),
+    field('Suffix (optional)', textInput(wb.config.suffix || '', (v) => { wb.config.suffix = v; refreshPreview(); }, { placeholder: 'e.g. signups, hrs — goes after' })),
+    colorField('Bar color', wb.config.color, '#6d5efc', (v) => { wb.config.color = v; refreshPreview(); }),
+    widthField(wb, ctx, 4),
+    subhead('Live preview'), previewHost,
+  ];
+  buildDyn();
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add progress bar' : 'Edit progress bar', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Counter editor ----------------
+function openCounterEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(() => {
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} }));
+    mountCounters(previewHost);
+  }, 150);
+  const body = [
+    field('Label', textInput(wb.config.label || '', (v) => { wb.config.label = v; refreshPreview(); }, { placeholder: 'e.g. Happy customers' })),
+    twoUp(
+      field('Start number', textInput(String(wb.config.start ?? 0), (v) => { wb.config.start = Number(v) || 0; refreshPreview(); }, { type: 'number' })),
+      field('End number', textInput(String(wb.config.end ?? 100), (v) => { wb.config.end = Number(v) || 0; refreshPreview(); }, { type: 'number' })),
+    ),
+    twoUp(
+      field('Prefix', textInput(wb.config.prefix || '', (v) => { wb.config.prefix = v; refreshPreview(); }, { placeholder: 'e.g. $' })),
+      field('Suffix', textInput(wb.config.suffix || '', (v) => { wb.config.suffix = v; refreshPreview(); }, { placeholder: 'e.g. +, %' })),
+    ),
+    field('Decimal places', textInput(String(wb.config.decimals ?? 0), (v) => { wb.config.decimals = Math.max(0, Math.min(4, Number(v) || 0)); refreshPreview(); }, { type: 'number' })),
+    field('Animation length (ms)', textInput(String(wb.config.duration ?? 1400), (v) => { wb.config.duration = Math.max(200, Number(v) || 1400); refreshPreview(); }, { type: 'number' }),
+      'How long the count-up takes once it scrolls into view.'),
+    subhead('Icon (optional)'), iconPickerField(ctx.site || {}, wb.config, refreshPreview),
+    widthField(wb, ctx, 3),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add counter' : 'Edit counter', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Accordion editor ----------------
+function openAccordionEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  wb.config.items = wb.config.items?.length ? wb.config.items : [{ q: 'Question one', a: 'Answer goes here.' }];
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(() => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); }, 100);
+
+  const itemsHost = el('div');
+  function renderItems() {
+    itemsHost.replaceChildren(subhead('Questions & answers'));
+    wb.config.items.forEach((it, i) => {
+      const row = el('div', { class: 'ap-tabedit', style: { alignItems: 'flex-start', gap: '10px' } }, [
+        el('div', { style: { flex: '1', display: 'flex', flexDirection: 'column', gap: '6px' } }, [
+          textInput(it.q || '', (v) => { it.q = v; refreshPreview(); }, { placeholder: 'Question' }),
+          textInput(it.a || '', (v) => { it.a = v; refreshPreview(); }, { textarea: true, placeholder: 'Answer' }),
+        ]),
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
+          i > 0 ? iconBtn('arrowUp', 'Move up', () => swap(i, i - 1)) : null,
+          i < wb.config.items.length - 1 ? iconBtn('arrowDown', 'Move down', () => swap(i, i + 1)) : null,
+          wb.config.items.length > 1 ? iconBtn('trash', 'Remove', () => { wb.config.items.splice(i, 1); renderItems(); refreshPreview(); }, 'ap-btn--danger') : null,
+        ]),
+      ]);
+      itemsHost.append(row);
+    });
+    itemsHost.append(el('button', { class: 'ap-btn ap-btn--soft', onClick: addItem }, [icon('plus'), 'Add question']));
+  }
+  function swap(a, b) { const it = wb.config.items; [it[a], it[b]] = [it[b], it[a]]; renderItems(); refreshPreview(); }
+  function addItem() { wb.config.items.push({ q: '', a: '' }); renderItems(); refreshPreview(); }
+  renderItems();
+
+  const body = [
+    field('Title (optional)', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'e.g. Frequently asked questions' })),
+    checkboxRow('First question open by default', wb.config.openFirst !== false, (v) => { wb.config.openFirst = v; refreshPreview(); }),
+    divider(), itemsHost,
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add accordion' : 'Edit accordion', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Image editor ----------------
+function openImageEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  wb.config.mode = wb.config.mode || 'upload';
+  wb.config.ref = wb.config.ref || { table: null, column: null, row: null };
+  wb.config.link = wb.config.link || { kind: null, tab: null, url: null, newTab: true };
+  const provider = ctx.provider;
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(async () => {
+    if (wb.config.mode === 'attachment' && wb.config.ref.table) await ensureRows(provider, wb.config.ref.table);
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider, config: {} }));
+    mountAttachmentImages(previewHost);
+  }, 150);
+
+  const dynHost = el('div');
+  function buildDyn() {
+    if (wb.config.mode === 'upload') {
+      dynHost.replaceChildren(
+        el('div', { class: 'ap-row' }, [
+          el('button', { class: 'ap-btn ap-btn--soft', onClick: () => pickImage(async (f) => {
+            wb.config.imageData = await readFileAsDataURL(f, 1600); buildDyn(); refreshPreview();
+          }) }, [icon('image'), wb.config.imageData ? 'Replace image' : 'Upload image']),
+          wb.config.imageData ? el('button', { class: 'ap-btn ap-btn--ghost ap-btn--danger', onClick: () => { wb.config.imageData = null; buildDyn(); refreshPreview(); } }, [icon('trash'), 'Remove']) : null,
+        ]),
+      );
+      return;
+    }
+    // Attachment mode — table/column/row all need to be picked; only tables with a real Grist
+    // Attachments column are usable (see bridge.js's resolveAttachmentCell for the cell shape).
+    const tables = provider.tables();
+    if (!wb.config.ref.table) wb.config.ref.table = tables[0]?.id || null;
+    const cols = provider.columns(wb.config.ref.table).filter((c) => /attach/i.test(c.type));
+    if (cols.length && !cols.find((c) => c.id === wb.config.ref.column)) wb.config.ref.column = cols[0].id;
+    const rows = provider.records(wb.config.ref.table);
+    if (cols.length && rows.length && wb.config.ref.row == null) wb.config.ref.row = rows[0].id;
+    dynHost.replaceChildren(
+      field('Data table', tablePicker(provider, wb.config.ref.table,
+        async (v) => { wb.config.ref.table = v; wb.config.ref.column = null; wb.config.ref.row = null; await ensureRows(provider, v); buildDyn(); refreshPreview(); })),
+      editDataRow(() => wb.config.ref.table, ctx, () => openImageEditor(block, ctx)),
+      !cols.length
+        ? el('div', { class: 'ap-muted', style: { fontSize: '12px' }, text: 'This table has no Attachments column. Add one in Grist, or switch to "Upload my own image".' })
+        : el('div', {}, [
+            field('Attachment column', selectInput(cols.map((c) => ({ value: c.id, label: c.label })), wb.config.ref.column, (v) => { wb.config.ref.column = v; refreshPreview(); })),
+            field('Row', selectInput(rows.map((r) => ({ value: String(r.id), label: rowLabel(r, provider.columns(wb.config.ref.table)) })), String(wb.config.ref.row ?? ''), (v) => { wb.config.ref.row = Number(v); refreshPreview(); })),
+          ]),
+    );
+  }
+
+  const body = [
+    field('Image source', segmented([{ value: 'upload', label: 'Upload my own' }, { value: 'attachment', label: 'From my Grist data' }], wb.config.mode, (v) => { wb.config.mode = v; buildDyn(); refreshPreview(); })),
+    dynHost,
+    field('Alt text (accessibility)', textInput(wb.config.alt || '', (v) => { wb.config.alt = v; }, { placeholder: 'Describe the image' })),
+    field('Fit', segmented([{ value: 'cover', label: 'Fill & crop' }, { value: 'contain', label: 'Show whole image' }], wb.config.fit || 'cover', (v) => { wb.config.fit = v; refreshPreview(); })),
+    field('Caption (optional)', textInput(wb.config.caption || '', (v) => { wb.config.caption = v; refreshPreview(); }, { placeholder: 'A short caption under the image' })),
+    field('Link (optional)', linkTargetField(wb.config.link, ctx.site?.tabs, refreshPreview)),
+    widthField(wb, ctx, 6),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add image' : 'Edit image', body, footer, wb, ctx, refreshPreview);
+  // Row records aren't guaranteed pre-loaded (unlike columns, which GristProvider.init() always
+  // pre-fetches) — prime them before the first build so an existing attachment-mode image's row
+  // picker isn't briefly empty.
+  (async () => {
+    if (wb.config.mode === 'attachment' && wb.config.ref.table) await ensureRows(provider, wb.config.ref.table);
+    buildDyn();
+    refreshPreview();
+  })();
+}
+
+// ---------------- Testimonials editor ----------------
+function openTestimonialsEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  wb.config.mode = wb.config.mode || 'manual';
+  wb.config.entries = wb.config.entries?.length ? wb.config.entries : [{ name: '', quote: '', rating: 5, photoData: null }];
+  const provider = ctx.provider;
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(async () => {
+    if (wb.config.mode === 'data' && wb.config.table) await ensureRows(provider, wb.config.table);
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider, config: {} }));
+    mountAttachmentImages(previewHost);
+  }, 150);
+
+  const dynHost = el('div');
+  function buildDyn() {
+    if (wb.config.mode === 'manual') { dynHost.replaceChildren(manualEntriesEditor()); return; }
+    const tables = provider.tables();
+    if (!wb.config.table) wb.config.table = tables[0]?.id || null;
+    const cols = provider.columns(wb.config.table);
+    const attCols = cols.filter((c) => /attach/i.test(c.type));
+    if (cols.length && !cols.find((c) => c.id === wb.config.nameColumn)) wb.config.nameColumn = cols[0].id;
+    const optional = (label) => [{ value: '', label }].concat(cols.map((c) => ({ value: c.id, label: c.label })));
+    dynHost.replaceChildren(
+      field('Data table', tablePicker(provider, wb.config.table,
+        async (v) => { wb.config.table = v; wb.config.nameColumn = null; wb.config.quoteColumn = null; wb.config.ratingColumn = null; wb.config.photoColumn = null; await ensureRows(provider, v); buildDyn(); refreshPreview(); })),
+      editDataRow(() => wb.config.table, ctx, () => openTestimonialsEditor(block, ctx)),
+      field('Name column', selectInput(cols.map((c) => ({ value: c.id, label: c.label })), wb.config.nameColumn, (v) => { wb.config.nameColumn = v; refreshPreview(); })),
+      field('Quote column', selectInput(optional('— none —'), wb.config.quoteColumn || '', (v) => { wb.config.quoteColumn = v || null; refreshPreview(); })),
+      field('Rating column (optional, 1–5)', selectInput(optional('— none —'), wb.config.ratingColumn || '', (v) => { wb.config.ratingColumn = v || null; refreshPreview(); })),
+      attCols.length
+        ? field('Photo column (optional)', selectInput([{ value: '', label: '— none —' }].concat(attCols.map((c) => ({ value: c.id, label: c.label }))), wb.config.photoColumn || '', (v) => { wb.config.photoColumn = v || null; refreshPreview(); }))
+        : el('div', { class: 'ap-muted', style: { fontSize: '12px' }, text: 'No Attachments column in this table — photos will show as an initial instead.' }),
+      field('Max testimonials shown', textInput(String(wb.config.limit || 6), (v) => { wb.config.limit = Math.max(1, Math.min(24, Number(v) || 6)); refreshPreview(); }, { type: 'number' })),
+    );
+  }
+
+  function manualEntriesEditor() {
+    const host = el('div', {}, [subhead('Testimonials')]);
+    wb.config.entries.forEach((e, i) => {
+      const avatarPreview = el('div', { style: { marginBottom: '6px' } }, [avatarThumb(e)]);
+      const row = el('div', { class: 'ap-tabedit', style: { alignItems: 'flex-start', gap: '10px' } }, [
+        el('div', { style: { flex: '1', display: 'flex', flexDirection: 'column', gap: '6px' } }, [
+          textInput(e.name || '', (v) => { e.name = v; refreshPreview(); }, { placeholder: 'Name' }),
+          textInput(e.quote || '', (v) => { e.quote = v; refreshPreview(); }, { textarea: true, placeholder: 'What they said…' }),
+          ratingPicker(e),
+          avatarPreview,
+          el('div', { class: 'ap-row' }, [
+            el('button', { class: 'ap-btn ap-btn--soft ap-btn--sm', onClick: () => pickImage(async (f) => {
+              e.photoData = await readFileAsDataURL(f, 200); avatarPreview.replaceChildren(avatarThumb(e)); refreshPreview();
+            }) }, [icon('image'), e.photoData ? 'Replace photo' : 'Add photo']),
+            e.photoData ? el('button', { class: 'ap-btn ap-btn--ghost ap-btn--sm ap-btn--danger', onClick: () => { e.photoData = null; avatarPreview.replaceChildren(avatarThumb(e)); refreshPreview(); } }, [icon('trash'), 'Remove']) : null,
+          ]),
+        ]),
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
+          i > 0 ? iconBtn('arrowUp', 'Move up', () => swapEntry(i, i - 1)) : null,
+          i < wb.config.entries.length - 1 ? iconBtn('arrowDown', 'Move down', () => swapEntry(i, i + 1)) : null,
+          wb.config.entries.length > 1 ? iconBtn('trash', 'Remove', () => { wb.config.entries.splice(i, 1); buildDyn(); refreshPreview(); }, 'ap-btn--danger') : null,
+        ]),
+      ]);
+      host.append(row);
+    });
+    host.append(el('button', { class: 'ap-btn ap-btn--soft', onClick: () => { wb.config.entries.push({ name: '', quote: '', rating: 5, photoData: null }); buildDyn(); refreshPreview(); } }, [icon('plus'), 'Add testimonial']));
+    return host;
+  }
+  function avatarThumb(e) {
+    return e.photoData
+      ? el('img', { src: e.photoData, alt: '', style: { width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' } })
+      : el('div', { class: 'ap-muted', style: { fontSize: '12px' }, text: 'No photo (shows initial)' });
+  }
+  function ratingPicker(e) {
+    const wrap = el('div', { class: 'ap-row', style: { gap: '3px' } });
+    const rebuild = () => {
+      wrap.replaceChildren();
+      for (let i = 1; i <= 5; i++) {
+        const b = el('button', { class: 'ap-btn ap-btn--icon ap-btn--sm', title: `${i} star${i > 1 ? 's' : ''}`, style: { color: i <= (e.rating || 0) ? '#f5a524' : 'var(--ap-text-mute)' } }, [icon('star')]);
+        b.addEventListener('click', () => { e.rating = i; rebuild(); refreshPreview(); });
+        wrap.append(b);
+      }
+      const clear = el('button', { class: 'ap-btn ap-btn--ghost ap-btn--sm', text: 'No rating' });
+      clear.addEventListener('click', () => { e.rating = null; rebuild(); refreshPreview(); });
+      wrap.append(clear);
+    };
+    rebuild();
+    return wrap;
+  }
+  function swapEntry(a, b) { const arr = wb.config.entries; [arr[a], arr[b]] = [arr[b], arr[a]]; buildDyn(); refreshPreview(); }
+
+  const body = [
+    field('Section title (optional)', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'e.g. What people are saying' })),
+    field('Content comes from', segmented([{ value: 'manual', label: 'Type them in' }, { value: 'data', label: 'From my data' }], wb.config.mode, (v) => { wb.config.mode = v; buildDyn(); refreshPreview(); })),
+    dynHost,
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add testimonials' : 'Edit testimonials', body, footer, wb, ctx, refreshPreview);
+  (async () => {
+    if (wb.config.mode === 'data' && wb.config.table) await ensureRows(provider, wb.config.table);
+    buildDyn();
+    refreshPreview();
+  })();
+}
+
+// ---------------- Live data table editor ----------------
+// Highlight ranges use spreadsheet A1 notation: column letter = position among the columns
+// currently shown (A = leftmost shown column, regardless of the underlying table's real column
+// order), row number = the row's position in the table as loaded (1 = first row) — stable even
+// if a viewer later sorts or searches, since that only changes what's *visible*, not row identity.
+function highlightsEditor(wb, refreshPreview) {
+  wb.config.highlights = wb.config.highlights?.length ? wb.config.highlights : [];
+  const host = el('div');
+  function render() {
+    host.replaceChildren(subhead('Highlighted cells (optional)'));
+    wb.config.highlights.forEach((h, i) => {
+      const row = el('div', { class: 'ap-tabedit', style: { alignItems: 'flex-start', gap: '10px' } }, [
+        el('div', { style: { flex: '1', display: 'flex', flexDirection: 'column', gap: '6px' } }, [
+          textInput(h.ranges || '', (v) => { h.ranges = v; refreshPreview(); }, { placeholder: 'e.g. A1:A9, B3, B4:B7, C1' }),
+          colorField('Highlight color', h.color, '#fff3b0', (v) => { h.color = v; refreshPreview(); }),
+        ]),
+        iconBtn('trash', 'Remove', () => { wb.config.highlights.splice(i, 1); render(); refreshPreview(); }, 'ap-btn--danger'),
+      ]);
+      host.append(row);
+    });
+    host.append(el('button', { class: 'ap-btn ap-btn--soft', onClick: () => { wb.config.highlights.push({ ranges: '', color: '#fff3b0' }); render(); refreshPreview(); } }, [icon('plus'), 'Add highlight']));
+  }
+  render();
+  return field(null, host, 'A = the first column shown, B = the second, and so on. Rows count from 1 in the order the table loads them, not the current sort.');
+}
+
+function openLiveTableEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const provider = ctx.provider;
+  wb.config.table = wb.config.table || provider.defaultTable();
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(async () => {
+    await ensureRows(provider, wb.config.table);
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider, config: {} }));
+  }, 150);
+
+  const dynHost = el('div');
+  function buildDyn() {
+    const cols = provider.columns(wb.config.table);
+    if (!wb.config.columns?.length) wb.config.columns = cols.slice(0, 5).map((c) => c.id);
+    dynHost.replaceChildren(
+      subhead('Columns to show'),
+      columnPicker(cols, wb.config.columns, (ids) => { wb.config.columns = ids; refreshPreview(); }, { pickOrder: true }),
+      field('Sorted when the page opens', sortField(cols, wb, refreshPreview), 'Ascending puts A, the earliest date or the smallest number first. Readers can still sort by any column.'),
+    );
+  }
+
+  const body = [
+    field('Title (optional)', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'e.g. All submissions' })),
+    field('Data table', tablePicker(provider, wb.config.table,
+      async (v) => { wb.config.table = v; wb.config.columns = null; wb.config.defaultSort = null; await ensureRows(provider, v); buildDyn(); refreshPreview(); })),
+    editDataRow(() => wb.config.table, ctx, () => openLiveTableEditor(block, ctx)),
+    dynHost,
+    divider(),
+    highlightsEditor(wb, refreshPreview),
+    divider(),
+    field('Rows per page', textInput(String(wb.config.pageSize || 10), (v) => { wb.config.pageSize = Math.max(3, Math.min(100, Number(v) || 10)); refreshPreview(); }, { type: 'number' })),
+    checkboxRow('Let viewers search', wb.config.searchable !== false, (v) => { wb.config.searchable = v; refreshPreview(); }),
+    checkboxRow('Let viewers sort by clicking column headers', wb.config.sortable !== false, (v) => { wb.config.sortable = v; refreshPreview(); }),
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add data table' : 'Edit data table', body, footer, wb, ctx, refreshPreview);
+  (async () => { await ensureRows(provider, wb.config.table); buildDyn(); refreshPreview(); })();
+}
+
+// The order a data table opens in. The renderer has always honoured defaultSort (templates set it),
+// but nothing in the editor could, so a table of customers "quiet ones first" needed a hand-edited
+// config (found building the Glutbohne case study, 3.10.6). Any column of the table, shown or not.
+function sortField(cols, wb, refresh) {
+  const ds = () => wb.config.defaultSort;
+  const dirHost = el('div');
+  const drawDir = () => dirHost.replaceChildren(...(ds()?.column
+    ? [segmented([{ value: 'asc', label: 'Ascending' }, { value: 'desc', label: 'Descending' }], ds().dir || 'asc', (v) => { wb.config.defaultSort = { ...ds(), dir: v }; refresh(); })]
+    : []));
+  const known = cols.some((c) => c.id === ds()?.column);
+  const sel = selectInput([{ value: '', label: 'As in the table' }].concat(cols.map((c) => ({ value: c.id, label: c.label || c.id }))), known ? ds().column : '', (v) => {
+    wb.config.defaultSort = v ? { column: v, dir: ds()?.dir || 'asc' } : null; drawDir(); refresh();
+  });
+  drawDir();
+  return el('div', { style: { display: 'grid', gap: '8px' } }, [sel, dirHost]);
+}
+
+// ---------------- Shared: what a nested widget reads ----------------
+// The table a nested widget reads (a Widget block, or an embed with Grist access) and the mapping
+// for the columns it asks for. The columns come from the widget itself: when the live preview
+// loads it, it tells the host which columns it wants — grist.ready({ columns }) — the host raises
+// ap:nested-configure, and this section repaints with a picker per column. The request is kept on
+// the block so the pickers are there next time without waiting for the widget to load.
+function nestedDataSection(wb, ctx, refresh) {
+  const provider = ctx.provider;
+  const mapHost = el('div');
+  const columnsFor = () => {
+    const table = wb.config.table || linkedTableId() || provider.defaultTable();
+    return table ? (provider.columns(table) || []) : [];
+  };
+  const paint = () => {
+    const raw = wb.config.requested?.columns;
+    const specs = Array.isArray(raw) ? raw.map((c) => (typeof c === 'string' ? { name: c } : c)).filter((c) => c && c.name) : [];
+    if (!specs.length) {
+      mapHost.replaceChildren(el('div', { class: 'ap-muted', style: { fontSize: '12px', marginBottom: '14px' },
+        text: wb.config.requested ? 'This widget does not ask for particular columns; it reads the table as it is.' : 'Once the widget loads in the preview below, the columns it asks for appear here, each with a picker.' }));
+      return;
+    }
+    const columns = columnsFor();
+    const parts = [subhead('Columns the widget asks for')];
+    for (const spec of specs) {
+      const label = (spec.title || spec.name) + (spec.optional ? ' (optional)' : '');
+      const cur = wb.config.mappings?.[spec.name];
+      let control;
+      if (spec.allowMultiple) {
+        control = columnPicker(columns, Array.isArray(cur) ? cur : (cur ? [cur] : []), (ids) => { (wb.config.mappings ||= {})[spec.name] = ids; refresh(); });
+      } else {
+        control = selectInput([{ value: '', label: 'Not mapped' }, ...columns.map((c) => ({ value: c.id, label: `${c.label || c.id} · ${c.type}` }))],
+          Array.isArray(cur) ? (cur[0] || '') : (cur || ''), (v) => { (wb.config.mappings ||= {})[spec.name] = v || null; refresh(); });
+      }
+      parts.push(field(label, control, spec.description || (spec.type ? `The widget expects ${spec.type}.` : null)));
+    }
+    mapHost.replaceChildren(...parts);
+  };
+  const onConfigure = (e) => {
+    if (!mapHost.isConnected) { document.removeEventListener('ap:nested-configure', onConfigure); return; }
+    if (e.detail?.blockId !== wb.id) return;
+    const s = e.detail.settings || {};
+    wb.config.requested = { columns: Array.isArray(s.columns) ? s.columns : null, requiredAccess: s.requiredAccess || null };
+    paint();
+  };
+  document.addEventListener('ap:nested-configure', onConfigure);
+  const tableField = field('Table it reads',
+    tablePicker(provider, wb.config.table || '', (v) => { wb.config.table = v || null; paint(); refresh(); }, { blank: 'The table this dashboard is linked to in Grist' }),
+    'Pick a table and the widget reads that one. Leave it blank and it follows the table chosen for this dashboard in Grist, changes included.');
+  const forget = ghostBtn('Forget the widget\'s saved settings', async () => {
+    await clearNestedOptions(wb.id);
+    toast('Cleared. The widget starts fresh the next time it loads.', 'ok');
+    refresh();
+  });
+  forget.classList.add('ap-btn--sm');
+  paint();
+  return [tableField, mapHost, el('div', { style: { margin: '0 0 14px' } }, [forget,
+    el('div', { class: 'ap-muted', style: { fontSize: '11.5px', marginTop: '4px' }, text: 'A widget keeps its own settings (a note, a chosen view) with this page. This clears them.' })])];
+}
+
+// ---------------- Widget editor ----------------
+function openWidgetEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const previewHost = el('div', { class: 'ap-preview' });
+  // Loading a whole widget on every keystroke of the URL would be a lot of loading.
+  const refreshPreview = debounce(() => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); mountWidgets(previewHost); }, 600);
+  const body = [
+    el('div', { class: 'ap-trust ap-trust--warn' }, [
+      icon('shield'),
+      el('div', {}, [
+        el('strong', { text: 'Runs with this dashboard\'s access to your document.' }),
+        el('div', { class: 'ap-muted', text: 'Whatever this dashboard can read, the nested widget can read; if this dashboard can write, so can it. Add only widgets you trust, from an address you know.' }),
+      ]),
+    ]),
+    field('Widget URL', textInput(wb.config.url || '', (v) => { wb.config.url = v.trim(); refreshPreview(); }, { placeholder: 'https://…' }),
+      'The same address you would paste into Grist\'s custom widget settings.'),
+    ...nestedDataSection(wb, ctx, refreshPreview),
+    field('Height (pixels)', textInput(String(wb.config.height ?? 420), (v) => { wb.config.height = widgetHeight(v); refreshPreview(); }, { type: 'number' }),
+      `Up to ${WIDGET_MAX_HEIGHT}. Give it the room it needs so it scrolls with the page, not inside its own frame.`),
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add widget' : 'Edit widget', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Embed editor ----------------
+function openEmbedEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const previewHost = el('div', { class: 'ap-preview' });
+  // Re-composing srcdoc reloads the whole iframe from scratch — a longer debounce than other
+  // editors keeps that from firing on every keystroke.
+  const refreshPreview = debounce(() => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); }, 500);
+
+  // The trust note and the data section follow the access switch: sandboxed code gets neither a
+  // table nor a mapping, because it cannot reach them.
+  const trustHost = el('div');
+  const dataHost = el('div');
+  const paintAccess = () => {
+    const on = wb.config.access === 'grist';
+    trustHost.replaceChildren(el('div', { class: 'ap-trust' + (on ? ' ap-trust--warn' : '') }, [
+      icon(on ? 'shield' : 'code'),
+      el('div', {}, [
+        el('strong', { text: on ? 'Runs as a custom widget, with this dashboard\'s access to your document.' : 'Runs in a sandboxed frame.' }),
+        el('div', { class: 'ap-muted', html: on
+          ? 'The Grist plugin API is loaded ahead of your code, so it works exactly as in a widget of your own: call <code>grist.ready({ columns: [&hellip;] })</code>, then <code>grist.onRecords(&hellip;)</code>. Your code can read what this dashboard can read, and write if it can write. You\'re responsible for whatever you put here.'
+          : 'Your HTML, CSS and JavaScript run isolated from this widget and your Grist data — they can\'t read your tables, this widget\'s settings, or the page around them. You\'re responsible for whatever you put here.' }),
+      ]),
+    ]));
+    dataHost.replaceChildren(...(on ? nestedDataSection(wb, ctx, refreshPreview) : []));
+  };
+  paintAccess();
+
+  const body = [
+    trustHost,
+    field('Access to your document', segmented([{ value: 'none', label: 'None (sandboxed)' }, { value: 'grist', label: 'Grist plugin API' }], wb.config.access || 'none', (v) => { wb.config.access = v; paintAccess(); refreshPreview(); }),
+      'With the plugin API, this block is a custom widget written in place.'),
+    dataHost,
+    field('HTML', textInput(wb.config.html || '', (v) => { wb.config.html = v; refreshPreview(); }, { textarea: true, placeholder: '<div>Hello world</div>' })),
+    field('CSS', textInput(wb.config.css || '', (v) => { wb.config.css = v; refreshPreview(); }, { textarea: true, placeholder: 'div { color: teal; }' })),
+    field('JavaScript', textInput(wb.config.js || '', (v) => { wb.config.js = v; refreshPreview(); }, { textarea: true, placeholder: 'console.log("hello")' })),
+    field('Height (pixels)', textInput(String(wb.config.height ?? 300), (v) => { wb.config.height = Math.max(80, Math.min(4000, Number(v) || 300)); refreshPreview(); }, { type: 'number' }),
+      'Up to 4000. Give an embedded form or page its full height so it scrolls with the dashboard, not inside its own frame.'),
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add embed' : 'Edit embed', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- QR code editor ----------------
+/**
+ * Barcode editor.
+ *
+ * Everything here is in millimetres, not pixels, and the panel says so — the module width IS the
+ * scannability of the result, and someone who thinks they are choosing a display size will pick a
+ * number that cannot be read by a scanner.
+ */
+
+// ---------------- Slicer editor ----------------
+// A new slicer's label is its column's name (new-block.js). Exported for the tests.
+//
+// Changing the column, or the table, left that name behind: a slicer set to Year still said
+// "Channel" above the years (found scripting the tutorial, 3.8.4). A label that still reads as
+// the previous column's name was written by us, not the author, so it follows the new column. A
+// label the author typed stays, and so does one they emptied: a slicer with no label already
+// shows its column's name (render/slicer.js).
+export function followColumnLabel(label, before, after) {
+  return (label || '') === (before || '') ? (after || '') : label;
+}
+
+/**
+ * Slicer editor.
+ *
+ * The one question an author has about a slicer is "what will it filter?", and the answer used to
+ * be something they found out by trying it. The panel answers it live: as the table and column
+ * change, the list of blocks the automatic rules would reach updates underneath. Naming the blocks
+ * explicitly is there for when the rules are not what was meant — a chart that should stay whole
+ * as context, say, while everything around it narrows.
+ */
+function openSlicerEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const site = ctx.site || {};
+  const tab = (site.tabs || []).find((t) => t.id === ctx.tabId)
+    || (site.tabs || []).find((t) => flattenBlocks(t.blocks).some((b) => b.id === block.id))
+    || { blocks: [] };
+  if (!wb.config.table) wb.config.table = ctx.provider.defaultTable();
+  const previewHost = el('div', { class: 'ap-preview' });
+  const reach = el('div', { class: 'ap-muted', style: { fontSize: '12px', marginTop: '6px' } });
+  // A barcode or QR code has no title: by its name in the chooser and its caption ("Barcode: %Product × %Quantity"), not "barcode"
+  const blockName = (b) => { const kind = blockCatalogEntry(b.type)?.title || b.type; return b.config?.title || b.config?.label || b.config?.heading || (b.config?.caption ? kind + ': ' + b.config.caption : kind); };
+  // Blocks inside a Grid block are candidates too; the grid itself holds no data and is not.
+  const siblings = flattenBlocks(tab.blocks).filter((b) => b.id !== block.id && b.type !== 'slicer' && b.type !== 'grid');
+
+  const refreshPreview = debounce(() => {
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: site }));
+    if (Array.isArray(wb.config.targets)) {
+      const n = wb.config.targets.length;
+      reach.textContent = n ? `Filters ${n} chosen block${n === 1 ? '' : 's'} on this page.` : 'Filters nothing until you choose some blocks below.';
+      return;
+    }
+    const hit = affectedBlocks(wb, tab, ctx.provider);
+    reach.textContent = hit.length
+      ? `Filters ${hit.length} block${hit.length === 1 ? '' : 's'} on this page: ${hit.map(blockName).join(', ')}.`
+      : (wb.config.table && wb.config.column ? 'Reaches no other block on this page yet — none shares this column or references this table.' : '');
+  }, 150);
+
+  // The name a column goes by, as new-block.js writes it into a new slicer's label.
+  const columnName = (table, id) => {
+    const c = (ctx.provider.columns(table) || []).find((x) => x.id === id);
+    return c ? (c.label || c.id) : (id || '');
+  };
+  const labelInput = textInput(wb.config.label || '', (v) => { wb.config.label = v; refreshPreview(); }, { placeholder: 'Shown above the choices' });
+  const followColumn = (before, after) => {
+    const next = followColumnLabel(wb.config.label, before, after);
+    if (next !== wb.config.label) { wb.config.label = next; labelInput.value = next; }
+  };
+
+  const columnField = () => {
+    const cols = (ctx.provider.columns(wb.config.table) || []).map((c) => ({ value: c.id, label: c.label || c.id }));
+    return selectInput([{ value: '', label: 'Choose a column…' }, ...cols], wb.config.column || '', (v) => {
+      followColumn(columnName(wb.config.table, wb.config.column), columnName(wb.config.table, v));
+      wb.config.column = v; delete wb.config.defaults; drawDefaults(); refreshPreview();
+    });
+  };
+  const columnHost = el('div', {}, [columnField()]);
+
+  // Asked for on the community forum: a master list of every applicant is right for the yearly
+  // review and wrong for the daily page, which should open already narrowed to this year's
+  // cohort. The author ticks the choices here; the reader can still widen or clear them.
+  const defaultsHost = el('div');
+  const drawDefaults = () => {
+    defaultsHost.replaceChildren();
+    if (!wb.config.table || !wb.config.column) return;
+    const picked = new Set((wb.config.defaults || []).map(String));
+    // A default the data no longer has (last year's cohort) is still listed, so it can be unticked.
+    const options = slicerOptions(ctx.provider.baseProvider || ctx.provider, wb.config.table, wb.config.column, { limit: 60, keep: picked });
+    const gone = options.filter((o) => o.missing && picked.has(o.key)).length;
+    const row = el('div', { class: 'ap-slicer__chips' }, options.map((o) => el('button', {
+      type: 'button', class: 'ap-chip ap-slicer__chip' + (picked.has(o.key) ? ' is-active' : '') + (o.missing ? ' is-missing' : ''), 'aria-pressed': picked.has(o.key) ? 'true' : 'false',
+      title: o.missing ? 'No rows have this value now' : null,
+      onClick: () => {
+        if (picked.has(o.key)) picked.delete(o.key); else if (wb.config.multi === false) { picked.clear(); picked.add(o.key); } else picked.add(o.key);
+        wb.config.defaults = [...picked];
+        if (!wb.config.defaults.length) delete wb.config.defaults;
+        drawDefaults(); refreshPreview();
+      },
+    }, [el('span', { text: o.label })])));
+    defaultsHost.append(field('Start with these picked', row, picked.size
+      ? `Opens narrowed to ${picked.size} choice${picked.size === 1 ? '' : 's'}. Readers can change or clear it.`
+        + (gone ? ` ${gone === 1 ? 'One of them is' : `${gone} of them are`} not in the data now (dashed), so ${gone === 1 ? 'it matches' : 'they match'} no rows.` : '')
+      : 'Nothing picked: the page opens showing every row.'));
+  };
+  drawDefaults();
+
+  const targetsHost = el('div', { class: 'ap-slicer-targets' });
+  const drawTargets = () => {
+    targetsHost.replaceChildren();
+    if (!Array.isArray(wb.config.targets)) return;
+    if (!siblings.length) { targetsHost.append(el('div', { class: 'ap-muted', text: 'No other blocks on this page yet.' })); return; }
+    for (const b of siblings) {
+      targetsHost.append(checkboxRow(blockName(b), wb.config.targets.includes(b.id), (on) => {
+        const set = new Set(wb.config.targets);
+        if (on) set.add(b.id); else set.delete(b.id);
+        wb.config.targets = [...set];
+        refreshPreview();
+      }));
+    }
+    // joinChosenSlicers (data/slicer.js): said here so nobody wonders why a new chart is ticked
+    targetsHost.append(el('div', { class: 'ap-muted', style: { fontSize: '12px', marginTop: '4px' }, text: 'A block you add later is ticked here when this slicer can reach it. Untick it to leave it out.' }));
+  };
+
+  const body = [
+    field('Table', tablePicker(ctx.provider, wb.config.table, (v) => {
+      // No column is picked on the new table yet, so a following label empties (the slicer then
+      // says "Filter") and takes the name of whichever column is picked next.
+      followColumn(columnName(wb.config.table, wb.config.column), '');
+      wb.config.table = v; wb.config.column = ''; delete wb.config.defaults;
+      columnHost.replaceChildren(columnField());
+      drawDefaults(); refreshPreview();
+    })),
+    field('Column', columnHost, 'The values in this column become the choices. A Choice, Reference or Text column works best.'),
+    field('Label (optional)', labelInput),
+    twoUp(
+      field('Show as', segmented([{ value: 'auto', label: 'Auto' }, { value: 'chips', label: 'Chips' }, { value: 'dropdown', label: 'Menu' }],
+        wb.config.style || 'auto', (v) => { wb.config.style = v; refreshPreview(); }), 'Auto uses chips up to twelve choices, then a menu.'),
+      field('Selection', segmented([{ value: 'multi', label: 'Several' }, { value: 'single', label: 'One' }],
+        wb.config.multi === false ? 'single' : 'multi', (v) => { wb.config.multi = v !== 'single'; refreshPreview(); })),
+    ),
+    checkboxRow('Show how many rows each choice has', wb.config.showCounts !== false, (v) => { wb.config.showCounts = v; refreshPreview(); }),
+    subhead('When the page opens'),
+    defaultsHost,
+    checkboxRow('Remember each reader\'s last choice on their device', !!wb.config.remember, (v) => { wb.config.remember = v; refreshPreview(); }),
+    subhead('What it filters'),
+    field('Blocks', segmented([{ value: 'auto', label: 'Automatic' }, { value: 'custom', label: 'Choose' }],
+      Array.isArray(wb.config.targets) ? 'custom' : 'auto', (v) => {
+        if (v === 'custom') wb.config.targets = affectedBlocks(wb, tab, ctx.provider).map((b) => b.id);
+        else delete wb.config.targets;
+        drawTargets(); refreshPreview();
+      }),
+      'Automatic reaches any block whose table shares this column, and follows reference columns both ways.'),
+    targetsHost,
+    reach,
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add slicer' : 'Edit slicer', body, footer, wb, ctx, refreshPreview);
+  drawTargets();
+  refreshPreview();
+}
+
+// ---------------- Grid editor ----------------
+// The grid's own settings are its shape. Its blocks are added from the page — every empty cell has
+// an Add button, and a block in a cell is edited and deleted like any other — so this panel is the
+// one place to change how many cells there are, and it says what a smaller shape would cost.
+function openGridEditor(block, ctx) {
+  const wb = clone(block); wb.config = normalizeGrid(wb.config);
+  const previewHost = el('div', { class: 'ap-preview' });
+  const warn = el('div', { class: 'ap-muted', style: { fontSize: '12px', marginTop: '6px' } });
+  const count = el('div', { class: 'ap-muted', style: { fontSize: '12px' } });
+  const refreshPreview = debounce(() => {
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: ctx.site || {} }));
+    mountCharts(previewHost); mountCounters(previewHost);
+    const filled = wb.config.cells.filter(Boolean).length, total = wb.config.cols * wb.config.rows;
+    count.textContent = `${filled} of ${total} cell${total === 1 ? '' : 's'} hold a block. Fill the rest from the page: each empty cell has an Add button.`;
+  }, 150);
+  const resize = (cols, rows) => {
+    const { cells, dropped } = resizeCells(wb.config.cells, wb.config.cols, wb.config.rows, cols, rows);
+    wb.config.cols = cols; wb.config.rows = rows; wb.config.cells = cells;
+    warn.textContent = dropped.length
+      ? `${dropped.length} block${dropped.length === 1 ? '' : 's'} no longer fit at this size and will be removed when you apply. Cancel keeps them.`
+      : '';
+    refreshPreview();
+  };
+  const dims = [];
+  for (let n = GRID_MIN; n <= GRID_MAX; n++) dims.push({ value: n, label: String(n) });
+  const body = [
+    field('Title (optional)', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'Shown above the cells' }),
+      'With a title the grid draws as a panel. Without one it is invisible and only its blocks show.'),
+    twoUp(
+      field('Columns', segmented(dims, wb.config.cols, (v) => resize(v, wb.config.rows))),
+      field('Rows', segmented(dims, wb.config.rows, (v) => resize(wb.config.cols, v))),
+    ),
+    warn,
+    field('Gap between cells', segmented([{ value: 'compact', label: 'Compact' }, { value: 'normal', label: 'Normal' }, { value: 'roomy', label: 'Roomy' }],
+      wb.config.gap, (v) => { wb.config.gap = v; refreshPreview(); })),
+    count,
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add grid' : 'Edit grid', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+function openBarcodeEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const previewHost = el('div', { class: 'ap-preview' });
+  const hint = el('div', { class: 'ap-muted', style: { fontSize: '12px', marginTop: '6px' } });
+  const refreshPreview = debounce(() => {
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} }));
+    const sym = SYMBOLOGIES[wb.config.symbology] || SYMBOLOGIES.code128;
+    const svg = previewHost.querySelector('svg');
+    hint.textContent = svg
+      ? `${sym.label} · prints ${svg.getAttribute('width')} wide by ${svg.getAttribute('height')} tall`
+      : sym.hint;
+  }, 150);
+  const body = [
+    field('Symbology', segmented(Object.values(SYMBOLOGIES).map((s) => ({ value: s.id, label: s.label })),
+      wb.config.symbology || 'code128', (v) => { wb.config.symbology = v; refreshPreview(); }),
+      'Code 128 carries any text and suits asset tags and internal references. EAN and UPC take the digits printed on retail packaging.'),
+    field('Value', textInput(wb.config.value || '', (v) => { wb.config.value = v; refreshPreview(); }, { placeholder: 'e.g. AC-0007 or 5901234123457' }),
+      'For EAN and UPC the check digit is worked out for you, so paste the number with or without it. In a printout that repeats per record, %ColumnName is replaced by that row\'s value.'),
+    twoUp(
+      field('Bar width', textInput(String(wb.config.moduleMm ?? DEFAULT_MODULE_MM), (v) => {
+        wb.config.moduleMm = Math.max(MIN_MODULE_MM, Math.min(MAX_MODULE_MM, Number(v) || DEFAULT_MODULE_MM)); refreshPreview();
+      }), 'Millimetres, for the narrowest bar. Below about 0.25 many printers and hand scanners start to struggle.'),
+      field('Height', textInput(String(wb.config.heightMm ?? DEFAULT_HEIGHT_MM), (v) => {
+        wb.config.heightMm = Math.max(5, Math.min(120, Number(v) || DEFAULT_HEIGHT_MM)); refreshPreview();
+      }), 'Millimetres.'),
+    ),
+    checkboxRow('Show the number underneath', wb.config.showText !== false, (v) => { wb.config.showText = v; refreshPreview(); }),
+    twoUp(
+      colorField('Bars', wb.config.fg, '#000000', (v) => { wb.config.fg = v; refreshPreview(); }),
+      colorField('Background', wb.config.bg, '#ffffff', (v) => { wb.config.bg = v; refreshPreview(); }),
+    ),
+    field('Caption (optional)', textInput(wb.config.caption || '', (v) => { wb.config.caption = v; refreshPreview(); }, { placeholder: 'e.g. Asset tag' })),
+    widthField(wb, ctx, 3),
+    subhead('Live preview'), previewHost, hint,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add barcode' : 'Edit barcode', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+function openQRCodeEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(() => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); }, 150);
+  const body = [
+    field('Link or text', textInput(wb.config.text || '', (v) => { wb.config.text = v; refreshPreview(); }, { textarea: true, placeholder: 'https://example.com' }),
+      'Anything works — a URL, a phone number, plain text. Generated entirely in the browser; nothing is sent anywhere.'),
+    field('Error correction', segmented([
+      { value: 'L', label: 'Low' }, { value: 'M', label: 'Medium' }, { value: 'Q', label: 'Quartile' }, { value: 'H', label: 'High' },
+    ], wb.config.level || 'M', (v) => { wb.config.level = v; refreshPreview(); }),
+      'Higher levels stay scannable even if the code gets partly damaged or covered, but hold less text at a given size.'),
+    twoUp(
+      colorField('Code color', wb.config.fg, '#000000', (v) => { wb.config.fg = v; refreshPreview(); }),
+      colorField('Background', wb.config.bg, '#ffffff', (v) => { wb.config.bg = v; refreshPreview(); }),
+    ),
+    field('Size (pixels)', textInput(String(wb.config.size ?? 200), (v) => { wb.config.size = Math.max(80, Math.min(600, Number(v) || 200)); refreshPreview(); }, { type: 'number' })),
+    field('Caption (optional)', textInput(wb.config.caption || '', (v) => { wb.config.caption = v; refreshPreview(); }, { placeholder: 'e.g. Scan to donate' })),
+    widthField(wb, ctx, 3),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add QR code' : 'Edit QR code', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Countdown editor ----------------
+function openCountdownEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  wb.config.targetDate = wb.config.targetDate || new Date(Date.now() + 7 * 86400000).toISOString();
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(() => {
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} }));
+    mountCountdowns(previewHost);
+  }, 200);
+
+  // datetime-local wants a timezone-free "local" string; shifting by the local offset before
+  // calling toISOString() is the standard trick to populate one from a UTC-based Date.
+  const dt = new Date(wb.config.targetDate);
+  const localStr = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+  const body = [
+    field('Title (optional)', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'e.g. Early-bird pricing ends' })),
+    field('Counts down to', textInput(localStr, (v) => { if (v) { wb.config.targetDate = new Date(v).toISOString(); refreshPreview(); } }, { type: 'datetime-local' })),
+    field('Message once it ends', textInput(wb.config.expiredText || '', (v) => { wb.config.expiredText = v; refreshPreview(); }, { placeholder: 'e.g. This offer has ended.' })),
+    colorField('Number color', wb.config.color, '#6d5efc', (v) => { wb.config.color = v; refreshPreview(); }),
+    widthField(wb, ctx, 4),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add countdown' : 'Edit countdown', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Timeline editor ----------------
+function openTimelineEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  wb.config.items = wb.config.items?.length ? wb.config.items : [{ date: '', title: '', description: '' }];
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(() => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); }, 100);
+
+  const itemsHost = el('div');
+  function renderItems() {
+    itemsHost.replaceChildren(subhead('Milestones'));
+    wb.config.items.forEach((it, i) => {
+      const row = el('div', { class: 'ap-tabedit', style: { alignItems: 'flex-start', gap: '10px' } }, [
+        el('div', { style: { flex: '1', display: 'flex', flexDirection: 'column', gap: '6px' } }, [
+          textInput(it.date || '', (v) => { it.date = v; refreshPreview(); }, { placeholder: 'e.g. 2020, or March 2024' }),
+          textInput(it.title || '', (v) => { it.title = v; refreshPreview(); }, { placeholder: 'Milestone title' }),
+          textInput(it.description || '', (v) => { it.description = v; refreshPreview(); }, { textarea: true, placeholder: 'A short description (optional)' }),
+        ]),
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
+          i > 0 ? iconBtn('arrowUp', 'Move up', () => swap(i, i - 1)) : null,
+          i < wb.config.items.length - 1 ? iconBtn('arrowDown', 'Move down', () => swap(i, i + 1)) : null,
+          wb.config.items.length > 1 ? iconBtn('trash', 'Remove', () => { wb.config.items.splice(i, 1); renderItems(); refreshPreview(); }, 'ap-btn--danger') : null,
+        ]),
+      ]);
+      itemsHost.append(row);
+    });
+    itemsHost.append(el('button', { class: 'ap-btn ap-btn--soft', onClick: () => { wb.config.items.push({ date: '', title: '', description: '' }); renderItems(); refreshPreview(); } }, [icon('plus'), 'Add milestone']));
+  }
+  function swap(a, b) { const arr = wb.config.items; [arr[a], arr[b]] = [arr[b], arr[a]]; renderItems(); refreshPreview(); }
+  renderItems();
+
+  const body = [
+    field('Title (optional)', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'e.g. Our history' })),
+    divider(), itemsHost,
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add timeline' : 'Edit timeline', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Divider editor ----------------
+function openDividerEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = () => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); };
+  const body = [
+    field('Style', segmented([{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' }], wb.config.style || 'solid', (v) => { wb.config.style = v; refreshPreview(); })),
+    field('Thickness (pixels)', textInput(String(wb.config.thickness ?? 1), (v) => { wb.config.thickness = Math.max(1, Math.min(10, Number(v) || 1)); refreshPreview(); }, { type: 'number' })),
+    colorField('Color', wb.config.color, '#d0d5dd', (v) => { wb.config.color = v; refreshPreview(); }),
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add divider' : 'Edit divider', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Pricing table editor ----------------
+function defaultPlan() {
+  return { name: 'Plan', price: '$0', period: '/mo', features: ['Feature one'], highlighted: false, buttonLabel: 'Choose', buttonTarget: { kind: null, tab: null, url: null, newTab: true } };
+}
+function openPricingEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  wb.config.plans = wb.config.plans?.length ? wb.config.plans : [defaultPlan()];
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(() => { previewHost.replaceChildren(renderBlock(clone(wb), { provider: ctx.provider, config: {} })); }, 150);
+
+  const plansHost = el('div');
+  function renderPlans() {
+    plansHost.replaceChildren(subhead('Plans'));
+    wb.config.plans.forEach((p, i) => {
+      p.buttonTarget = p.buttonTarget || { kind: null, tab: null, url: null, newTab: true };
+      const featuresHost = el('div');
+      function renderFeatures() {
+        featuresHost.replaceChildren();
+        (p.features ||= []).forEach((f, fi) => {
+          featuresHost.append(el('div', { class: 'ap-row' }, [
+            textInput(f, (v) => { p.features[fi] = v; refreshPreview(); }, { placeholder: 'e.g. Unlimited projects' }),
+            iconBtn('trash', 'Remove feature', () => { p.features.splice(fi, 1); renderFeatures(); refreshPreview(); }, 'ap-btn--danger'),
+          ]));
+        });
+        featuresHost.append(el('button', { class: 'ap-btn ap-btn--ghost ap-btn--sm', onClick: () => { p.features.push(''); renderFeatures(); refreshPreview(); } }, [icon('plus'), 'Add feature']));
+      }
+      renderFeatures();
+
+      const planBody = el('div', { style: { flex: '1', display: 'flex', flexDirection: 'column', gap: '8px' } }, [
+        textInput(p.name || '', (v) => { p.name = v; refreshPreview(); }, { placeholder: 'Plan name' }),
+        twoUp(
+          textInput(p.price || '', (v) => { p.price = v; refreshPreview(); }, { placeholder: 'e.g. $29' }),
+          textInput(p.period || '', (v) => { p.period = v; refreshPreview(); }, { placeholder: 'e.g. /month' }),
+        ),
+        checkboxRow('Highlight this plan', !!p.highlighted, (v) => { p.highlighted = v; refreshPreview(); }),
+        subhead('Features'), featuresHost,
+        subhead('Button'),
+        textInput(p.buttonLabel || '', (v) => { p.buttonLabel = v; refreshPreview(); }, { placeholder: 'Button label' }),
+        linkTargetField(p.buttonTarget, ctx.site?.tabs, refreshPreview),
+      ]);
+      const row = el('div', { class: 'ap-tabedit', style: { alignItems: 'flex-start', gap: '10px' } }, [
+        planBody,
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
+          i > 0 ? iconBtn('arrowUp', 'Move up', () => swapPlan(i, i - 1)) : null,
+          i < wb.config.plans.length - 1 ? iconBtn('arrowDown', 'Move down', () => swapPlan(i, i + 1)) : null,
+          wb.config.plans.length > 1 ? iconBtn('trash', 'Remove plan', () => { wb.config.plans.splice(i, 1); renderPlans(); refreshPreview(); }, 'ap-btn--danger') : null,
+        ]),
+      ]);
+      plansHost.append(row, divider());
+    });
+    plansHost.append(el('button', { class: 'ap-btn ap-btn--soft', onClick: () => { wb.config.plans.push(defaultPlan()); renderPlans(); refreshPreview(); } }, [icon('plus'), 'Add plan']));
+  }
+  function swapPlan(a, b) { const arr = wb.config.plans; [arr[a], arr[b]] = [arr[b], arr[a]]; renderPlans(); refreshPreview(); }
+  renderPlans();
+
+  const body = [
+    field('Section title (optional)', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'e.g. Choose your plan' })),
+    plansHost,
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add pricing table' : 'Edit pricing table', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// ---------------- Calendar editor ----------------
+function openCalendarEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const provider = ctx.provider;
+  wb.config.table = wb.config.table || provider.defaultTable();
+  const previewHost = el('div', { class: 'ap-preview' });
+  // No mountCalendars() call here on purpose: drag-to-reschedule and polling only ever activate
+  // on a genuinely live page (ctx.edit === null, see render/calendar.js) — this preview always
+  // passes edit:undefined, so there's nothing for it to mount.
+  const refreshPreview = debounce(async () => {
+    await ensureRows(provider, wb.config.table);
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider, config: {} }));
+  }, 150);
+
+  // Migrate any pre-existing single detailColumn onto the new detailColumns array so old configs
+  // keep their detail field when reopened here.
+  if (!wb.config.detailColumns) wb.config.detailColumns = wb.config.detailColumn ? [wb.config.detailColumn] : [];
+  delete wb.config.detailColumn;
+
+  const dynHost = el('div');
+  function buildDyn() {
+    const cols = provider.columns(wb.config.table);
+    if (cols.length && !cols.find((c) => c.id === wb.config.dateColumn)) wb.config.dateColumn = (cols.find((c) => /date/i.test(c.type)) || cols[0])?.id;
+    if (cols.length && !cols.find((c) => c.id === wb.config.titleColumn)) wb.config.titleColumn = cols[0]?.id;
+    const optional = (label) => [{ value: '', label }].concat(cols.map((c) => ({ value: c.id, label: c.label })));
+    // Up to four detail fields shown in the click popover, same pattern as the map's tooltip fields.
+    const dc = wb.config.detailColumns || [];
+    const detail = [dc[0] || '', dc[1] || '', dc[2] || '', dc[3] || ''];
+    const setDetail = (i, v) => { detail[i] = v; wb.config.detailColumns = detail.filter(Boolean); refreshPreview(); };
+    dynHost.replaceChildren(
+      field('Date column', selectInput(cols.map((c) => ({ value: c.id, label: c.label })), wb.config.dateColumn, (v) => { wb.config.dateColumn = v; refreshPreview(); }),
+        'Dragging an event to a new day on the live page writes the new date back to this column.'),
+      field('Event title column', selectInput(cols.map((c) => ({ value: c.id, label: c.label })), wb.config.titleColumn, (v) => { wb.config.titleColumn = v; refreshPreview(); })),
+      field('Color events by (optional)', selectInput(optional('— single color —'), wb.config.colorBy || '', (v) => { wb.config.colorBy = v || null; refreshPreview(); })),
+      subhead('Details shown on click (optional)'),
+      field('Detail field 1', selectInput(optional('— none —'), detail[0], (v) => setDetail(0, v))),
+      field('Detail field 2', selectInput(optional('— none —'), detail[1], (v) => setDetail(1, v))),
+      field('Detail field 3', selectInput(optional('— none —'), detail[2], (v) => setDetail(2, v))),
+      field('Detail field 4', selectInput(optional('— none —'), detail[3], (v) => setDetail(3, v))),
+    );
+  }
+
+  const body = [
+    field('Title', textInput(wb.config.title || '', (v) => { wb.config.title = v; refreshPreview(); }, { placeholder: 'e.g. Task calendar' })),
+    field('Data table', tablePicker(provider, wb.config.table,
+      async (v) => { wb.config.table = v; wb.config.dateColumn = null; wb.config.titleColumn = null; await ensureRows(provider, v); buildDyn(); refreshPreview(); })),
+    editDataRow(() => wb.config.table, ctx, () => openCalendarEditor(block, ctx)),
+    dynHost,
+    checkboxRow('Let viewers drag events to reschedule', wb.config.draggable !== false, (v) => { wb.config.draggable = v; refreshPreview(); }),
+    widthField(wb, ctx, 12),
+    subhead('Live preview'),
+    el('div', { class: 'ap-muted', style: { fontSize: '12px', marginBottom: '6px' }, text: 'Dragging only works on the real published page, not in this preview — and picks up direct Grist edits on its own every ~15s while open.' }),
+    previewHost,
+  ];
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add calendar' : 'Edit calendar', body, footer, wb, ctx, refreshPreview);
+  (async () => { await ensureRows(provider, wb.config.table); buildDyn(); refreshPreview(); })();
+}
+
+// ---------------- Invoice ----------------
+// The most configuration of any block, because an invoice is the one place where guessing wrong is
+// not cosmetic — the wrong column in the "amount" slot is a wrong bill. So every mapping is a
+// visible dropdown with a sensible guess pre-selected, grouped by the question it answers: where
+// the invoices are, who they are for, what is on them, who is sending them, and the money.
+function openInvoiceEditor(block, ctx) {
+  const wb = clone(block); wb.config = wb.config || {};
+  const provider = ctx.provider;
+  const c = wb.config;
+  c.table = c.table || provider.defaultTable();
+  c.from = c.from || { name: '', address: '', email: '', phone: '', taxId: '', logoData: null };
+
+  const previewHost = el('div', { class: 'ap-preview' });
+  const refreshPreview = debounce(async () => {
+    await ensureRows(provider, c.table);
+    if (c.itemsTable) await ensureRows(provider, c.itemsTable);
+    if (c.clientTable) await ensureRows(provider, c.clientTable);
+    previewHost.replaceChildren(renderBlock(clone(wb), { provider, config: { dataTable: c.table } }));
+  }, 200);
+
+  const colOpts = (table, allowNone = true, noneLabel = '— none —') => {
+    const opts = (provider.columns(table) || []).map((x) => ({ value: x.id, label: x.label }));
+    return allowNone ? [{ value: '', label: noneLabel }].concat(opts) : opts;
+  };
+  const set = (key) => (v) => { c[key] = v || null; refreshPreview(); };
+  const setFrom = (key) => (v) => { c.from[key] = v; refreshPreview(); };
+  const hint = (text) => el('div', { class: 'ap-muted', style: { fontSize: '11.5px', margin: '-6px 0 10px' }, text });
+
+  // Rebuilt whenever the invoice table changes, since every column dropdown below depends on it.
+  const mapHost = el('div');
+  function buildMap() {
+    mapHost.replaceChildren(
+      field('Invoice number', selectInput(colOpts(c.table), c.numberColumn || '', set('numberColumn'))),
+      field('Client', selectInput(colOpts(c.table), c.clientColumn || '', set('clientColumn'))),
+      twoUp(
+        field('Issue date', selectInput(colOpts(c.table), c.dateColumn || '', set('dateColumn'))),
+        field('Due date', selectInput(colOpts(c.table), c.dueColumn || '', set('dueColumn'))),
+      ),
+      twoUp(
+        field('Amount', selectInput(colOpts(c.table), c.amountColumn || '', set('amountColumn'))),
+        field('Status', selectInput(colOpts(c.table), c.statusColumn || '', set('statusColumn'))),
+      ),
+      field('Note on the invoice', selectInput(colOpts(c.table), c.noteColumn || '', set('noteColumn'))),
+      twoUp(
+        field('Their reference / PO', selectInput(colOpts(c.table), c.referenceColumn || '', set('referenceColumn'))),
+        field('Reference label', textInput(c.referenceLabel || '', (v) => { c.referenceLabel = v; refreshPreview(); }, { placeholder: 'Your reference' })),
+      ),
+      hint('Accounts payable match on their own reference, not on your number. An invoice without it can sit unpaid with nobody doing anything wrong.'),
+    );
+  }
+
+  // Line items are optional on purpose: without them the block bills the Amount column as a single
+  // line, which is all most invoice tables can support today.
+  const itemsHost = el('div');
+  function buildItems() {
+    const t = c.itemsTable;
+    itemsHost.replaceChildren(
+      field('Line items table', tablePicker(provider, t || '',
+        async (v) => { c.itemsTable = v || null; if (v) { await ensureRows(provider, v); Object.assign(c, guessInvoiceItems(provider.columns(v) || [], c.table)); } buildItems(); refreshPreview(); },
+        { blank: '— no line items, bill the amount —' })),
+      t ? field('Links back to the invoice by', selectInput(colOpts(t), c.itemsLinkColumn || '', set('itemsLinkColumn'))) : null,
+      t ? field('Description', selectInput(colOpts(t), c.itemDescColumn || '', set('itemDescColumn'))) : null,
+      t ? twoUp(
+        field('Quantity', selectInput(colOpts(t), c.itemQtyColumn || '', set('itemQtyColumn'))),
+        field('Unit price', selectInput(colOpts(t), c.itemPriceColumn || '', set('itemPriceColumn'))),
+      ) : null,
+      t ? field('Line total (optional)', selectInput(colOpts(t), c.itemTotalColumn || '', set('itemTotalColumn'))) : null,
+      t ? hint('Leave the line total blank and it is quantity x unit price. Point it at a column to use a stored total instead, which matters when a formula rounds or applies a discount.') : null,
+      !t ? field('Single-line description', textInput(c.singleLineLabel || '', (v) => { c.singleLineLabel = v; refreshPreview(); }, { placeholder: 'Services rendered' })) : null,
+    );
+  }
+
+  const clientHost = el('div');
+  function buildClient() {
+    const t = c.clientTable;
+    clientHost.replaceChildren(
+      field('Client address book', tablePicker(provider, t || '',
+        async (v) => { c.clientTable = v || null; if (v) await ensureRows(provider, v); buildClient(); refreshPreview(); },
+        { blank: '— just use the name on the invoice —' })),
+      t ? field('Name column', selectInput(colOpts(t, false), c.clientNameColumn || '', set('clientNameColumn'))) : null,
+      // columnPicker reports the whole selection, in table order. This handler once expected
+      // (id, on) and so never changed anything: an address line could not be added or removed.
+      t ? field('Address lines', columnPicker(provider.columns(t) || [], c.clientAddressColumns || [], (ids) => {
+        c.clientAddressColumns = ids;
+        refreshPreview();
+      })) : null,
+      t ? hint('Matched by name, or followed directly when the invoice column is a Grist reference.') : null,
+    );
+  }
+
+  const body = [
+    field('Block title', textInput(c.title || '', (v) => { c.title = v; refreshPreview(); }, { placeholder: 'Invoice' })),
+    field('Word on the document', textInput(c.documentTitle || '', (v) => { c.documentTitle = v; refreshPreview(); }, { placeholder: 'Invoice' })),
+
+    field('Style', segmented(STYLES.map((v) => ({ value: v, label: STYLE_LABELS[v] })), c.style || 'classic',
+      (v) => { c.style = v; refreshPreview(); })),
+    hint('Four mastheads over the same document. Banded suits a strong logo, Letterhead reads like printed stationery, Minimal drops the colour entirely.'),
+
+    subhead('Where the invoices are'),
+    field('Invoice table', tablePicker(provider, c.table, async (v) => {
+      c.table = v; await ensureRows(provider, v);
+      Object.assign(c, guessInvoiceConfig(provider.columns(v) || [], provider.tables()));
+      buildMap(); buildClient(); refreshPreview();
+    })),
+    mapHost,
+
+    subhead('Who it is for'),
+    clientHost,
+
+    subhead('What is on it'),
+    itemsHost,
+
+    subhead('Your details'),
+    hint('The same on every invoice, so they live with the design rather than in a table.'),
+    hint('Leave the name or logo blank and the invoice uses the ones from your site header, so it is branded without being configured twice.'),
+    field('Business name', textInput(c.from.name || '', setFrom('name'), { placeholder: 'From your site header' })),
+    field('Address', textInput(c.from.address || '', setFrom('address'), { textarea: true, rows: 3, placeholder: '1 Example Street\nCity, Postcode' })),
+    twoUp(
+      field('Email', textInput(c.from.email || '', setFrom('email'), { placeholder: 'billing@example.com' })),
+      field('Phone', textInput(c.from.phone || '', setFrom('phone'), { placeholder: '+1 (212) 555-0100' })),
+    ),
+    twoUp(
+      field('Tax ID label', textInput(c.taxIdLabel || '', (v) => { c.taxIdLabel = v; refreshPreview(); }, { placeholder: 'VAT no.' })),
+      field('Tax ID', textInput(c.from.taxId || '', setFrom('taxId'), { placeholder: '' })),
+    ),
+    invoiceLogoField(c, refreshPreview),
+
+    subhead('Money'),
+    twoUp(
+      field('Currency symbol', textInput(c.currency || '', (v) => { c.currency = v; refreshPreview(); }, { placeholder: '$' })),
+      field('Accent colour', colorInput(c.accent || '', (v) => { c.accent = v || null; refreshPreview(); })),
+    ),
+    twoUp(
+      field('Tax label', textInput(c.taxLabel || '', (v) => { c.taxLabel = v; refreshPreview(); }, { placeholder: 'VAT' })),
+      field('Tax rate %', textInput(String(c.taxRate ?? 0), (v) => { c.taxRate = v; refreshPreview(); }, { placeholder: '0' })),
+    ),
+    field('Closing line', textInput(c.footerText != null ? c.footerText : '', (v) => { c.footerText = v; refreshPreview(); },
+      { placeholder: 'From your site footer' })),
+    hint('Printed in a band at the foot of the document. Left blank it uses your site footer text; type a single space to leave it off entirely.'),
+    field('Payment terms', textInput(c.terms || '', (v) => { c.terms = v; refreshPreview(); }, { textarea: true, rows: 2, placeholder: 'Payment due within 30 days.' })),
+
+    subhead('Supporting text'),
+    hint('Every one of these is optional and prints only when filled in. Basic formatting is allowed, so an account number can be bold or a payment link can be a link.'),
+    twoUp(
+      field('Payment details label', textInput(c.paymentDetailsLabel || '', (v) => { c.paymentDetailsLabel = v; refreshPreview(); }, { placeholder: 'Payment details' })),
+      field('Total label', textInput(c.totalLabel || '', (v) => { c.totalLabel = v; refreshPreview(); }, { placeholder: 'Amount due' })),
+    ),
+    field('Payment details', textInput(c.paymentDetails || '', (v) => { c.paymentDetails = v; refreshPreview(); },
+      { textarea: true, rows: 3, placeholder: 'Bank: Example Bank\nAccount: 12345678  Sort code: 00-00-00' })),
+    field('Prepared by', textInput(c.preparedBy || '', (v) => { c.preparedBy = v; refreshPreview(); },
+      { textarea: true, rows: 2, placeholder: 'A. Name, Accounts' })),
+    field('Closing message', textInput(c.thanksText || '', (v) => { c.thanksText = v; refreshPreview(); },
+      { textarea: true, rows: 2, placeholder: 'Thank you for your business.' })),
+
+    widthField(wb, ctx, 12),
+    subhead('Live preview'), previewHost,
+  ];
+
+  buildMap(); buildClient(); buildItems();
+  const footer = [ghostBtn('Cancel', () => closeDrawer()), primaryBtn('Apply', 'check', () => { ctx.onApply(wb); closeDrawer(); })];
+  openEditor(block.__isNew ? 'Add invoice' : 'Edit invoice', body, footer, wb, ctx, refreshPreview);
+  refreshPreview();
+}
+
+// The sender's logo, on the same upload path as the header logo and hero slides.
+function invoiceLogoField(c, refresh) {
+  const preview = el('div', { class: 'ap-logofield__preview' },
+    c.from.logoData ? [el('img', { src: c.from.logoData, alt: '' })] : [el('span', { class: 'ap-muted', text: 'No logo' })]);
+  const pick = el('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
+  const row = el('div', { class: 'ap-row' }, [
+    el('button', { class: 'ap-btn ap-btn--soft ap-btn--sm', type: 'button', text: 'Upload logo', onClick: () => pick.click() }),
+    el('button', { class: 'ap-btn ap-btn--ghost ap-btn--sm', type: 'button', text: 'Remove',
+      onClick: () => { c.from.logoData = null; preview.replaceChildren(el('span', { class: 'ap-muted', text: 'No logo' })); refresh(); } }),
+    pick,
+  ]);
+  pick.addEventListener('change', async () => {
+    const f = pick.files && pick.files[0]; if (!f) return;
+    try {
+      c.from.logoData = await readFileAsDataURL(f, 260);
+      preview.replaceChildren(el('img', { src: c.from.logoData, alt: '' }));
+      refresh();
+    } catch { toast('Could not read that image.', 'err'); }
+  });
+  return field('Logo', el('div', { class: 'ap-logofield' }, [preview, row]));
+}
