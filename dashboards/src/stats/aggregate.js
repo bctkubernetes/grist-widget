@@ -85,6 +85,12 @@ const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base
 // The Choice list of a column, in the order its owner wrote it — for an age group column that is
 // "18–24, 25–34, 35–44", which no sort of the labels themselves can recover. Null when the column
 // is not a Choice column or the document did not send its options.
+/** A measure column's display label: its Grist label when set, else its id. */
+export function measureLabel(cols, id) {
+  const col = Array.isArray(cols) ? cols.find((c) => c.id === id) : null;
+  return (col && typeof col.label === 'string' && col.label.trim()) ? col.label : id;
+}
+
 export function choiceOrder(cols, dim) {
   const col = Array.isArray(cols) ? cols.find((c) => c.id === dim) : null;
   const choices = col?.widgetOptions?.choices;
@@ -210,7 +216,9 @@ export function groupAggregate(rows, opts) {
     }
     const list = measures.length ? measures : ['__count'];
     series = list.map((m) => ({
-      name: m === '__count' ? 'Count' : m,
+      // KNet: a measure's series is named by its column's label when the table has one, so a
+      // legend reads "Non-compliant", not the column id "Is_Non_Compliant".
+      name: m === '__count' ? 'Count' : measureLabel(cols, m),
       data: cats.map((c) => round(aggregate((bucket.get(c) || {})[m] || [], m === '__count' ? 'count' : agg))),
     }));
   }

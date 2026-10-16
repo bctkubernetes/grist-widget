@@ -25,6 +25,16 @@ const rows = [
 const cats = (o) => A.groupAggregate(rows, { dims: ['Age'], measures: ['N'], agg: 'sum', cols: COLS, ...o }).categories;
 const data = (o) => A.groupAggregate(rows, { dims: ['Age'], measures: ['N'], agg: 'sum', cols: COLS, ...o }).series[0].data;
 
+console.log('series names');
+{
+  const LCOLS = [{ id: 'Region', type: 'Text' }, { id: 'Is_Fail', type: 'Int', label: 'Non-compliant' }, { id: 'Units', type: 'Int' }];
+  const lrows = [{ Region: 'N', Is_Fail: 1, Units: 3 }, { Region: 'S', Is_Fail: 0, Units: 5 }];
+  const names = (cols) => A.groupAggregate(lrows, { dims: ['Region'], measures: ['Is_Fail', 'Units'], agg: 'sum', cols }).series.map((s) => s.name);
+  eq('a measure series takes its column label', names(LCOLS), ['Non-compliant', 'Units']);
+  eq('without column metadata it keeps the id, as before', names(undefined), ['Is_Fail', 'Units']);
+  eq('a blank label falls back to the id', A.measureLabel([{ id: 'X', label: '  ' }], 'X'), 'X');
+}
+
 console.log('order');
 eq('auto is source order, as every chart was before (no saved dashboard changes shape)', cats({}), ['35–44', '18–24', '45+', '25–34']);
 eq('...and the numbers travel with their groups', data({ order: 'choice' }), [3, 4, 8, 9]);
