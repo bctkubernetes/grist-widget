@@ -98,8 +98,17 @@ grist.ready({requiredAccess: 'full', columns: [{name: 'Content', type: 'Text'}, 
     showPanel('configuration');
   },
 });
+function emitCopilotState(name, value) {
+  try {
+    if (window.parent && typeof window.parent.postMessage === 'function') {
+      window.parent.postMessage({ type: 'knet:copilot-state', name, value }, '*');
+    }
+  } catch (e) {}
+}
+
 grist.onRecord(function (record, mappings) {
   quill.enable();
+  emitCopilotState('activeWidgetRecord', { id: record.id, widget: 'notepad' });
   // If this is a new record, or mapping is diffrent.
   if (id !== record.id || mappings?.Content !== column) {
     id = record.id;
@@ -123,6 +132,7 @@ grist.onNewRecord(function () {
   lastContent = null;
   quill.setContents(null);
   quill.disable();
+  emitCopilotState('activeWidgetRecord', null);
 })
 
 // Register onOptions handler.
